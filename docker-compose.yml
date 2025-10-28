@@ -1,0 +1,13 @@
+services:
+  procplan:
+    build: .
+    image: procplan:latest
+    container_name: procplan
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.sample.json:/data/config.json:ro
+      - ./data:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1

@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ProcPlan Scheduler</title>
+  <style>
+    :root {
+      font-family: Arial, sans-serif;
+      color: #1f1f1f;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f4f6fb;
+    }
+    header {
+      background: #264653;
+      color: #fff;
+      padding: 0.6rem 2rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.6rem;
+      letter-spacing: 0.02em;
+    }
+    header p {
+      margin: 0.2rem 0 0;
+      font-size: 0.95rem;
+      opacity: 0.85;
+    }
+    main {
+      padding: 1.25rem 4vw;
+      margin: 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    section {
+      background: #fff;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+    }
+    #availability-section {
+      overflow-x: auto;
+    }
+    #booking-panel {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #e2e8f0;
+    }
+    #status-panel {
+      position: fixed;
+      top: 1.5rem;
+      right: 1.5rem;
+      width: min(320px, 90vw);
+      padding: 0;
+      background: transparent;
+      box-shadow: none;
+      margin: 0;
+      z-index: 20;
+      pointer-events: none;
+    }
+    #status-panel .status {
+      pointer-events: auto;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.2);
+    }
+    h1, h2 {
+      margin-top: 0;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-weight: bold;
+    }
+    input, select, button, textarea {
+      font-size: 1rem;
+      padding: 0.5rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    button {
+      background: #2a9d8f;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    button:hover {
+      background: #23867d;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+    th, td {
+      border-bottom: 1px solid #e2e8f0;
+      padding: 0.6rem;
+      text-align: left;
+    }
+    th {
+      background: #f1f5f9;
+    }
+    .availability-legend {
+      display: flex;
+      gap: 1rem;
+      font-size: 0.9rem;
+      color: #475569;
+    }
+    .status {
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      margin-bottom: 1rem;
+      opacity: 1;
+      transition: opacity 0.7s ease;
+    }
+    .status.hidden {
+      opacity: 0;
+    }
+    .status.success {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .status.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .status.info {
+      background: #e0f2fe;
+      color: #0c4a6e;
+    }
+    .availability-table {
+      table-layout: auto;
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+    }
+    .availability-table th:first-child, .availability-table td:first-child {
+      width: 180px;
+      text-align: left;
+      background: #f8fafc;
+      z-index: 2;
+      position: sticky;
+      left: 0;
+    }
+    .availability-table th {
+      text-align: center;
+      font-size: 0.9rem;
+      padding: 0.4rem;
+      background: #e2e8f0;
+    }
+    .gpu-label-cell {
+      font-weight: 600;
+      font-size: 0.9rem;
+      background: #f1f5f9;
+    }
+    .availability-table th:not(:first-child) {
+      min-width: 96px;
+    }
+    .availability-table td.grid-cell {
+      min-width: 96px;
+    }
+    #availability-container {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .availability-table-wrapper {
+      margin: 0;
+    }
+    .availability-table-title {
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: #1f2937;
+    }
+    .grid-cell {
+      text-align: center;
+      font-size: 0.85rem;
+      padding: 0.45rem 0.3rem;
+      min-height: 48px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .grid-cell .cell-user {
+      font-weight: 600;
+    }
+    .grid-cell .cell-detail {
+      font-size: 0.72rem;
+      margin-top: 0.15rem;
+      display: block;
+    }
+    .cell-free {
+      background: #f8fafc;
+      color: #475569;
+    }
+    .cell-booked-high {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+    .cell-booked-medium {
+      background: #fef3c7;
+      color: #b45309;
+    }
+    .cell-booked-low {
+      background: #dcfce7;
+      color: #15803d;
+    }
+    .cell-current-day {
+      background: #f1f5f9 !important;
+    }
+    .cell-selected {
+      outline: 2px solid #2563eb;
+      outline-offset: -2px;
+      background: #dbeafe !important;
+      color: #1e3a8a !important;
+    }
+    .priority-legend {
+      display: flex;
+      gap: 0.75rem;
+      font-size: 0.85rem;
+      color: #475569;
+    }
+    .legend-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .legend-chip span {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      display: inline-block;
+    }
+    .legend-high { background: #fee2e2; border: 1px solid #fca5a5; }
+    .legend-medium { background: #fef3c7; border: 1px solid #fcd34d; }
+    .legend-low { background: #dcfce7; border: 1px solid #86efac; }
+    @media (max-width: 1200px) {
+      .availability-table th:first-child,
+      .availability-table td:first-child {
+        width: 150px;
+      }
+      .availability-table th:not(:first-child),
+      .availability-table td.grid-cell {
+        min-width: 80px;
+      }
+      #availability-table th {
+        font-size: 0.8rem;
+        padding: 0.3rem;
+      }
+      .grid-cell {
+        font-size: 0.78rem;
+        min-height: 44px;
+      }
+      .grid-cell .cell-user {
+        font-size: 0.82rem;
+      }
+      .grid-cell .cell-detail {
+        font-size: 0.68rem;
+      }
+    }
+    @media (max-width: 768px) {
+      .form-row {
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      }
+      .availability-table {
+        font-size: 0.75rem;
+      }
+      .availability-table th:first-child,
+      .availability-table td:first-child {
+        width: 130px;
+      }
+      .availability-table th:not(:first-child),
+      .availability-table td.grid-cell {
+        min-width: 64px;
+      }
+      #availability-table th:not(:first-child) {
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        padding: 0.4rem 0.2rem;
+      }
+      .grid-cell {
+        font-size: 0.7rem;
+        padding: 0.35rem 0.2rem;
+        min-height: 40px;
+      }
+      .grid-cell .cell-user {
+        font-size: 0.74rem;
+      }
+      .grid-cell .cell-detail {
+        font-size: 0.62rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ProcPlan Scheduler</h1>
+    <p>Plan GPU usage on shared nodes.</p>
+  </header>
+  <main>
+    <section id="controls">
+      <h2>Availability</h2>
+      <div class="form-row">
+        <div>
+          <label for="node-select">Node</label>
+          <select id="node-select"></select>
+        </div>
+        <div>
+          <label for="date-input">Day</label>
+          <input type="date" id="date-input">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="refresh-button">Refresh Availability</button>
+        </div>
+      </div>
+      <div class="availability-legend">
+        <span><strong>Rows</strong> list GPUs on the selected node.</span>
+        <span><strong>Columns</strong> represent each day of the selected year.</span>
+      </div>
+      <div class="priority-legend">
+        <span class="legend-chip"><span class="legend-high"></span>High priority</span>
+        <span class="legend-chip"><span class="legend-medium"></span>Medium priority</span>
+        <span class="legend-chip"><span class="legend-low"></span>Low priority</span>
+      </div>
+      <div id="booking-panel">
+        <h3>Create Booking</h3>
+        <form id="booking-form">
+          <div class="form-row">
+            <div>
+              <label for="user-label">Initials / Alias</label>
+              <input id="user-label" name="userLabel" required maxlength="12" placeholder="ABC" autocomplete="nickname">
+            </div>
+            <div>
+              <label for="priority">Priority</label>
+              <select id="priority" name="priority">
+                <option value="high">High – critical</option>
+                <option value="medium" selected>Medium – important</option>
+                <option value="low">Low – best effort</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <p>Select one or more free day cells in the grid to choose GPU and duration.</p>
+          </div>
+          <div style="margin-top: 1rem;">
+            <button type="submit">Book Slot</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section id="status-panel" hidden>
+      <div id="status-message" class="status info"></div>
+    </section>
+
+    <section id="availability-section">
+      <div id="availability-container"></div>
+    </section>
+  </main>
+
+  <script>
+    const nodeSelect = document.getElementById('node-select');
+    const dateInput = document.getElementById('date-input');
+    const refreshButton = document.getElementById('refresh-button');
+    const availabilityContainer = document.getElementById('availability-container');
+    const statusPanel = document.getElementById('status-panel');
+    const statusMessage = document.getElementById('status-message');
+    const bookingForm = document.getElementById('booking-form');
+    const userLabelInput = document.getElementById('user-label');
+    const priorityLabels = {
+      high: { text: 'High', cell: 'cell-booked-high' },
+      medium: { text: 'Medium', cell: 'cell-booked-medium' },
+      low: { text: 'Low', cell: 'cell-booked-low' }
+    };
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const USER_LABEL_COOKIE = 'procplan_user_label';
+
+    let nodesCache = [];
+    let currentGridDays = [];
+    let selectionState = {
+      active: false,
+      row: null,
+      baseIndex: null,
+      startIdx: null,
+      endIdx: null,
+    };
+    let selectedCellElements = [];
+    let pendingSelection = null;
+
+    let statusFadeTimer = null;
+
+    function setUserLabelCookie(value) {
+      const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+      const encoded = encodeURIComponent(value);
+      document.cookie = `${USER_LABEL_COOKIE}=${encoded}; expires=${expires}; path=/`;
+    }
+
+    function getUserLabelCookie() {
+      const cookies = document.cookie ? document.cookie.split(';') : [];
+      for (const entry of cookies) {
+        const [name, ...rest] = entry.trim().split('=');
+        if (name === USER_LABEL_COOKIE) {
+          return decodeURIComponent(rest.join('=') || '');
+        }
+      }
+      return '';
+    }
+
+    if (userLabelInput) {
+      const existing = getUserLabelCookie();
+      if (existing) {
+        userLabelInput.value = existing;
+      }
+    }
+
+    function setStatus(message, tone = 'info') {
+      if (statusFadeTimer) {
+        clearTimeout(statusFadeTimer);
+        statusFadeTimer = null;
+      }
+      statusMessage.textContent = message;
+      statusMessage.className = `status ${tone}`;
+      statusPanel.hidden = false;
+      void statusMessage.offsetWidth;
+      statusMessage.classList.remove('hidden');
+      statusFadeTimer = setTimeout(() => {
+        statusMessage.classList.add('hidden');
+        setTimeout(() => {
+          statusPanel.hidden = true;
+          statusMessage.textContent = '';
+          statusMessage.classList.remove('hidden');
+        }, 700);
+      }, tone === 'error' ? 6000 : 3500);
+    }
+
+    function clearStatus() {
+      statusPanel.hidden = true;
+      statusMessage.textContent = '';
+      if (statusFadeTimer) {
+        clearTimeout(statusFadeTimer);
+        statusFadeTimer = null;
+      }
+    }
+
+    function clearSelectionDisplay() {
+      if (!selectedCellElements.length) {
+        return;
+      }
+      for (const cell of selectedCellElements) {
+        if (cell && cell.classList) {
+          cell.classList.remove('cell-selected');
+        }
+      }
+      selectedCellElements = [];
+    }
+
+    function clearSelection() {
+      clearSelectionDisplay();
+      selectionState = {
+        active: false,
+        row: null,
+        baseIndex: null,
+        startIdx: null,
+        endIdx: null,
+      };
+      pendingSelection = null;
+    }
+
+    function isInPast(dayKey) {
+      const today = new Date();
+      const todayKey = today.toISOString().substring(0, 10);
+      return dayKey < todayKey;
+    }
+
+    function applySelection(rowEl, startIdx, endIdx) {
+      if (!rowEl) {
+        return false;
+      }
+      const rowCells = Array.from(rowEl.querySelectorAll('td.grid-cell'));
+      if (rowCells.length === 0) {
+        return false;
+      }
+      const first = Math.min(startIdx, endIdx);
+      const last = Math.max(startIdx, endIdx);
+      const dayKeys = currentGridDays.map((day) => day.key);
+      for (let idx = first; idx <= last; idx += 1) {
+        const cell = rowCells[idx];
+        if (!cell || cell.dataset.status !== 'free') {
+          return false;
+        }
+        const dayKey = dayKeys[idx];
+        if (dayKey && isInPast(dayKey)) {
+          return false;
+        }
+      }
+      clearSelectionDisplay();
+      for (let idx = first; idx <= last; idx += 1) {
+        const cell = rowCells[idx];
+        cell.classList.add('cell-selected');
+        selectedCellElements.push(cell);
+      }
+      selectionState.startIdx = first;
+      selectionState.endIdx = last;
+      return true;
+    }
+
+    function beginSelection(cell) {
+      if (!cell) {
+        return;
+      }
+      const colIndex = parseInt(cell.dataset.colIndex || '', 10);
+      if (Number.isNaN(colIndex) || cell.dataset.status !== 'free') {
+        clearSelection();
+        return;
+      }
+      const dayKey = currentGridDays[colIndex] ? currentGridDays[colIndex].key : null;
+      if (dayKey && isInPast(dayKey)) {
+        clearSelection();
+        setStatus('Cannot book days in the past.', 'error');
+        return;
+      }
+      clearSelection();
+      selectionState.active = true;
+      selectionState.baseIndex = colIndex;
+      selectionState.row = cell.parentElement;
+      selectionState.row.dataset.gpuId = selectionState.row.dataset.gpuId || cell.dataset.gpuId;
+      applySelection(selectionState.row, colIndex, colIndex);
+    }
+
+    function extendSelection(cell) {
+      if (!selectionState.active || !selectionState.row) {
+        return;
+      }
+      if (!cell || cell.parentElement !== selectionState.row) {
+        return;
+      }
+      if (cell.dataset.status !== 'free') {
+        return;
+      }
+      const colIndex = parseInt(cell.dataset.colIndex || '', 10);
+      if (Number.isNaN(colIndex)) {
+        return;
+      }
+      const dayKey = currentGridDays[colIndex] ? currentGridDays[colIndex].key : null;
+      if (dayKey && isInPast(dayKey)) {
+        return;
+      }
+      applySelection(selectionState.row, selectionState.baseIndex, colIndex);
+    }
+
+    function finalizeSelection() {
+      if (!selectionState.active) {
+        return;
+      }
+      selectionState.active = false;
+      if (selectionState.row && selectionState.startIdx !== null && selectionState.endIdx !== null) {
+        updateFormFromSelection();
+      }
+    }
+
+    function updateFormFromSelection() {
+      if (!selectionState.row || selectionState.startIdx === null || selectionState.endIdx === null) {
+        return;
+      }
+      const startIdx = selectionState.startIdx;
+      const endIdx = selectionState.endIdx;
+      if (!currentGridDays[startIdx]) {
+        return;
+      }
+      const slotCount = endIdx - startIdx + 1;
+      const startIso = currentGridDays[startIdx].start;
+      const durationHours = slotCount * 24;
+
+      if (nodeSelect && selectionState.row.dataset.nodeId) {
+        nodeSelect.value = selectionState.row.dataset.nodeId;
+      }
+      if (dateInput) {
+        dateInput.value = startIso.substring(0, 10);
+      }
+      pendingSelection = {
+        startIso,
+        durationHours,
+        gpuId: selectionState.row.dataset.gpuId,
+        nodeId: selectionState.row.dataset.nodeId,
+        startIdx,
+        endIdx,
+      };
+      setStatus(`Prepared booking for ${slotCount} day(s) on ${selectionState.row.dataset.gpuId}.`, 'info');
+    }
+
+    function scrollToCurrentDay(days) {
+      const container = document.getElementById('availability-section');
+      if (!container || !days || days.length === 0) {
+        return;
+      }
+      let targetIndex = 0;
+      const now = new Date();
+      const todayKey = now.toISOString().substring(0, 10);
+      const idx = days.findIndex((day) => day.key === todayKey);
+      if (idx !== -1) {
+        targetIndex = idx;
+      }
+
+      const firstTable = availabilityContainer.querySelector('.availability-table');
+      if (!firstTable) {
+        return;
+      }
+      const headerCells = firstTable.querySelectorAll('thead th');
+      const firstDataHeader = headerCells[1];
+      const targetHeader = headerCells[targetIndex + 1];
+      if (!firstDataHeader || !targetHeader) {
+        return;
+      }
+      const offset = targetHeader.offsetLeft - firstDataHeader.offsetLeft;
+      const containerWidth = container.clientWidth;
+      const targetCenter = offset + (targetHeader.offsetWidth / 2);
+      const scrollLeft = Math.max(targetCenter - containerWidth / 2, 0);
+      container.scrollLeft = scrollLeft;
+    }
+
+    function formatHour(isoString) {
+      const dt = new Date(isoString);
+      return dt.toISOString().substring(11, 16);
+    }
+
+    function formatDayLabelFromKey(dayKey) {
+      const parts = dayKey.split('-');
+      if (parts.length !== 3) {
+        return dayKey;
+      }
+      const monthIdx = Math.max(0, Math.min(11, parseInt(parts[1], 10) - 1));
+      const dayNum = parseInt(parts[2], 10);
+      const month = MONTH_NAMES[monthIdx] || parts[1];
+      return `${month} ${dayNum}`;
+    }
+
+    function ensureDateValue() {
+      if (!dateInput.value) {
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(now.getUTCDate()).padStart(2, '0');
+        dateInput.value = `${year}-${month}-${day}`;
+      }
+    }
+
+    async function loadNodes() {
+      try {
+        const response = await fetch('/api/nodes');
+        if (!response.ok) {
+          throw new Error(`Failed to load nodes (${response.status})`);
+        }
+        const data = await response.json();
+        nodesCache = data.nodes || [];
+        nodeSelect.innerHTML = '';
+        const allOption = document.createElement('option');
+        allOption.value = 'all';
+        allOption.textContent = 'All nodes';
+        nodeSelect.appendChild(allOption);
+        for (const node of nodesCache) {
+          const option = document.createElement('option');
+          option.value = node.id;
+          option.textContent = `${node.name} (${node.gpu_count} GPUs)`;
+          nodeSelect.appendChild(option);
+        }
+        ensureDateValue();
+        if (nodesCache.length > 0) {
+          nodeSelect.value = 'all';
+          await loadAvailability();
+        } else {
+          setStatus('No nodes are configured. Check the server configuration file.', 'error');
+        }
+      } catch (err) {
+        setStatus(err.message, 'error');
+      }
+    }
+
+    function buildIntervalIsoStrings(dateStr) {
+      const date = new Date(dateStr);
+      const year = Number.isNaN(date.getTime()) ? new Date().getUTCFullYear() : date.getUTCFullYear();
+      const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0));
+      const end = new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0));
+      return {
+        startIso: start.toISOString(),
+        endIso: end.toISOString()
+      };
+    }
+
+    async function loadAvailability() {
+      ensureDateValue();
+      clearSelection();
+      const nodeId = nodeSelect.value;
+      const { startIso, endIso } = buildIntervalIsoStrings(dateInput.value);
+      try {
+        let datasets = [];
+        if (!nodeId || nodeId === 'all') {
+          datasets = await Promise.all(
+            nodesCache.map(async (node) => {
+              const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}`);
+              if (!resp.ok) {
+                throw new Error(`Failed to load availability for ${node.name} (${resp.status})`);
+              }
+              const json = await resp.json();
+              return { node, data: json };
+            })
+          );
+        } else {
+          const node = nodesCache.find((n) => n.id === nodeId);
+          if (!node) {
+            throw new Error('Unknown node selected');
+          }
+          const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}`);
+          if (!resp.ok) {
+            throw new Error(`Failed to load availability (${resp.status})`);
+          }
+          const json = await resp.json();
+          datasets = [{ node, data: json }];
+        }
+        renderAvailability(datasets);
+        clearStatus();
+      } catch (err) {
+        availabilityContainer.innerHTML = '';
+        clearSelection();
+        setStatus(err.message, 'error');
+      }
+    }
+
+    function renderAvailability(datasets) {
+      clearSelection();
+      availabilityContainer.innerHTML = '';
+
+      const validData = datasets.filter((entry) => entry && entry.data && entry.data.grid && Array.isArray(entry.data.grid.hours));
+      if (validData.length === 0) {
+        currentGridDays = [];
+        return;
+      }
+
+      const hours = validData[0].data.grid.hours;
+      const dayMap = new Map();
+      const dayList = [];
+      hours.forEach((hour, index) => {
+        const dayKey = hour.start.substring(0, 10);
+        let dayEntry = dayMap.get(dayKey);
+        if (!dayEntry) {
+          dayEntry = { key: dayKey, start: hour.start, indices: [] };
+          dayMap.set(dayKey, dayEntry);
+          dayList.push(dayEntry);
+        }
+        dayEntry.indices.push(index);
+      });
+
+      currentGridDays = dayList.map((day) => ({ key: day.key, start: day.start }));
+
+      const todayKey = new Date().toISOString().substring(0, 10);
+
+      validData.forEach(({ node, data }) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'availability-table-wrapper';
+
+        const title = document.createElement('div');
+        title.className = 'availability-table-title';
+        title.textContent = `${node.name} (${node.id})`;
+        wrapper.appendChild(title);
+
+        const table = document.createElement('table');
+        table.className = 'availability-table';
+
+        const thead = document.createElement('thead');
+        const headRow = document.createElement('tr');
+        const headFirst = document.createElement('th');
+        headFirst.textContent = 'GPU (kind)';
+        headRow.appendChild(headFirst);
+        dayList.forEach((day, index) => {
+          const th = document.createElement('th');
+          th.textContent = formatDayLabelFromKey(day.key);
+          th.dataset.dayKey = day.key;
+          th.dataset.colIndex = String(index);
+          if (day.key === todayKey) {
+            th.classList.add('cell-current-day');
+          }
+          headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const rows = data.grid.rows || [];
+        for (const row of rows) {
+          const tr = document.createElement('tr');
+          const labelCell = document.createElement('td');
+          labelCell.className = 'gpu-label-cell';
+          const gpu = row.gpu || {};
+          tr.dataset.gpuId = gpu.id || '';
+          tr.dataset.nodeId = node.id;
+          const kind = gpu.kind ? ` (${gpu.kind})` : '';
+          labelCell.textContent = `${gpu.id || 'GPU'}${kind}`;
+          tr.appendChild(labelCell);
+
+          const slots = row.hour_slots || [];
+          dayList.forEach((day, index) => {
+            const td = document.createElement('td');
+            td.classList.add('grid-cell');
+            td.dataset.colIndex = String(index);
+            td.dataset.gpuId = gpu.id || '';
+            td.dataset.nodeId = node.id;
+            td.dataset.dayStart = day.start;
+
+          let bookedHours = 0;
+          let bestPriority = 'medium';
+          let bestRank = -1;
+          let representativeBooking = null;
+          const priorityRank = { low: 0, medium: 1, high: 2 };
+            const bookingSummaries = [];
+
+          day.indices.forEach((hourIdx) => {
+            const slot = slots[hourIdx];
+            if (slot && slot.status === 'booked' && slot.booking) {
+              bookedHours += 1;
+              const booking = slot.booking;
+              const priorityKey = (booking.priority || 'medium').toLowerCase();
+              const rank = priorityRank[priorityKey] ?? 1;
+              if (rank > bestRank) {
+                bestPriority = priorityKey;
+                bestRank = rank;
+                representativeBooking = booking;
+              }
+              bookingSummaries.push({
+                id: booking.id,
+                label: booking.user_label,
+                priority: priorityKey,
+              });
+            }
+          });
+
+            const totalHours = day.indices.length || 24;
+            if (bookedHours === 0) {
+              td.classList.add('cell-free');
+              td.dataset.status = 'free';
+              td.textContent = 'Free';
+            } else {
+              const priorityInfo = priorityLabels[bestPriority] || priorityLabels.medium;
+            td.classList.add(priorityInfo.cell || 'cell-booked-medium');
+            td.dataset.status = bookedHours === totalHours ? 'occupied' : 'partial';
+            if (day.key === todayKey) {
+              td.classList.add('cell-current-day');
+            }
+            const userSpan = document.createElement('span');
+            userSpan.className = 'cell-user';
+            const label = representativeBooking ? representativeBooking.user_label : bookedHours === totalHours ? 'Booked' : 'Partial';
+            userSpan.textContent = label;
+            const detailSpan = document.createElement('span');
+            detailSpan.className = 'cell-detail';
+            detailSpan.textContent = `${bookedHours}h reserved`;
+            td.appendChild(userSpan);
+            td.appendChild(detailSpan);
+              if (bookingSummaries.length > 0) {
+                const summary = bookingSummaries[0];
+                td.title = `#${summary.id} ${summary.label} (${summary.priority})`;
+              } else {
+                td.title = `${best_label} (${bestPriority})`;
+              }
+            }
+
+            if (day.key === todayKey) {
+              td.classList.add('cell-current-day');
+            }
+
+            tr.appendChild(td);
+          });
+
+          tbody.appendChild(tr);
+        }
+
+        table.appendChild(tbody);
+        wrapper.appendChild(table);
+        availabilityContainer.appendChild(wrapper);
+      });
+
+      scrollToCurrentDay(currentGridDays);
+    }
+
+    function handleCellMouseDown(event) {
+      if (event.button !== undefined && event.button !== 0) {
+        return;
+      }
+      const cell = event.target.closest('td.grid-cell');
+      if (!cell) {
+        return;
+      }
+      if (cell.dataset.status === 'booked') {
+        clearSelection();
+        return;
+      }
+      event.preventDefault();
+      beginSelection(cell);
+    }
+
+    function handleCellMouseOver(event) {
+      if (!selectionState.active) {
+        return;
+      }
+      const cell = event.target.closest('td.grid-cell');
+      if (!cell) {
+        return;
+      }
+      extendSelection(cell);
+    }
+
+    function handleDocumentMouseUp() {
+      finalizeSelection();
+    }
+
+    availabilityContainer.addEventListener('mousedown', handleCellMouseDown);
+    availabilityContainer.addEventListener('mouseover', handleCellMouseOver);
+    document.addEventListener('mouseup', handleDocumentMouseUp);
+
+    bookingForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!pendingSelection) {
+        setStatus('Select at least one available day before booking.', 'error');
+        return;
+      }
+
+      const userLabel = document.getElementById('user-label').value.trim();
+      if (!userLabel) {
+        setStatus('Enter your initials or alias.', 'error');
+        return;
+      }
+
+      const priority = document.getElementById('priority').value;
+      const nodeId = pendingSelection.nodeId || nodeSelect.value;
+      if (!nodeId || nodeId === 'all') {
+        setStatus('Unable to determine target node from selection.', 'error');
+        return;
+      }
+
+      const startUtc = new Date(pendingSelection.startIso);
+      const endUtc = new Date(startUtc);
+      endUtc.setUTCHours(endUtc.getUTCHours() + pendingSelection.durationHours);
+      const now = new Date();
+      const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+      if (startUtc < todayStart) {
+        setStatus('Cannot create bookings in the past.', 'error');
+        return;
+      }
+
+      const payload = {
+        node_id: nodeId,
+        user_label: userLabel,
+        start: startUtc.toISOString(),
+        end: endUtc.toISOString(),
+        priority,
+        gpu_ids: [pendingSelection.gpuId],
+      };
+
+      try {
+        const response = await fetch('/api/book', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const message = errorData.error || `Booking failed (${response.status})`;
+          throw new Error(message);
+        }
+        const result = await response.json();
+        const priorityInfo = priorityLabels[(result.priority || 'medium').toLowerCase()] || priorityLabels.medium;
+        setStatus(`Booking confirmed (#${result.booking_id}) · ${priorityInfo.text} priority · ${result.gpu_ids.length} GPU(s).`, 'success');
+        const savedLabel = userLabelInput ? userLabelInput.value.trim() : '';
+        if (savedLabel) {
+          setUserLabelCookie(savedLabel);
+        }
+        bookingForm.reset();
+        if (userLabelInput) {
+          userLabelInput.value = savedLabel;
+        }
+        pendingSelection = null;
+        clearSelection();
+        if (Array.from(nodeSelect.options).some((opt) => opt.value === 'all')) {
+          nodeSelect.value = 'all';
+        }
+        await loadAvailability();
+      } catch (err) {
+        setStatus(err.message, 'error');
+      }
+    });
+
+    refreshButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      loadAvailability();
+    });
+
+    nodeSelect.addEventListener('change', loadAvailability);
+    dateInput.addEventListener('change', loadAvailability);
+
+    loadNodes();
+  </script>
+</body>
+</html>

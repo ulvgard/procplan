@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "procplan"
+version = "1.0.0"
+description = "GPU booking coordinator with web UI and CLI"
+readme = "README.md"
+authors = [
+  {name = "ProcPlan Maintainers"}
+]
+requires-python = ">=3.11"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+cli = []
+
+[project.scripts]
+procplan-cli = "procplan.cli:main"
+procplan-server = "procplan.server:main"
+procplan-notify = "procplan.notifier:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["procplan*"]

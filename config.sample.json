@@ -1,0 +1,23 @@
+{
+  "nodes": [
+    {
+      "id": "node-a",
+      "name": "Node A",
+      "gpus": [
+        {"id": "node-a-gpu0", "kind": "A100"},
+        {"id": "node-a-gpu1", "kind": "A100"},
+        {"id": "node-a-gpu2", "kind": "A100"},
+        {"id": "node-a-gpu3", "kind": "A100"}
+      ]
+    },
+    {
+      "id": "node-b",
+      "name": "Node B",
+      "gpus": [
+        {"id": "node-b-gpu0", "kind": "RTX6000"},
+        {"id": "node-b-gpu1", "kind": "RTX6000"}
+      ]
+    }
+  ]
+}
+
