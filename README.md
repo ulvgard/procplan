@@ -131,6 +131,7 @@ All timestamps are UTC and snap to whole hours.
 - SQLite operates in WAL mode for concurrency; the database file lives wherever
   you point `--database`.
 - Static assets ship inside `procplan/web`; override with `--web-root` if needed.
+- Run the unit suite with `python -m unittest discover -s tests` (no pytest required).
 
 ProcPlan v1.0.0 is ready for teams who want reliable GPU scheduling without a
 stack of services. Happy planning!

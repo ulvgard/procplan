@@ -101,6 +101,22 @@ class ProcPlanHTTPRequestHandler(BaseHTTPRequestHandler):
         else:
             self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
+    def do_DELETE(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/bookings/"):
+            parts = parsed.path.rstrip("/").split("/")
+            if len(parts) < 4 or not parts[3]:
+                self._send_error(HTTPStatus.BAD_REQUEST, "Booking id is required")
+                return
+            try:
+                booking_id = int(parts[3])
+            except ValueError:
+                self._send_error(HTTPStatus.BAD_REQUEST, "Booking id must be an integer")
+                return
+            self._handle_delete_booking(booking_id)
+        else:
+            self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
+
     def _read_json_body(self) -> Dict[str, Any]:
         content_length = int(self.headers.get("Content-Length") or "0")
         if content_length <= 0:
@@ -228,6 +244,20 @@ class ProcPlanHTTPRequestHandler(BaseHTTPRequestHandler):
             return
 
         self._send_json({"booking_id": int(booking_id), "status": "completed"})
+
+    def _handle_delete_booking(self, booking_id: int) -> None:
+        try:
+            success = self.service.cancel_booking(booking_id)
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.exception("Failed to cancel booking")
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+            return
+
+        if not success:
+            self._send_error(HTTPStatus.NOT_FOUND, f"Booking '{booking_id}' is not active or does not exist")
+            return
+
+        self._send_json({"booking_id": booking_id, "status": "cancelled"})
 
     def _handle_reload_config(self) -> None:
         try:

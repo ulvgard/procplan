@@ -234,6 +234,9 @@ class ProcPlanService:
     def mark_booking_complete(self, booking_id: int) -> bool:
         return self.database.mark_booking_done(booking_id=booking_id)
 
+    def cancel_booking(self, booking_id: int) -> bool:
+        return self.database.cancel_booking(booking_id=booking_id)
+
     def default_availability_window(self) -> Tuple[datetime, datetime]:
         now = datetime.now(tz=UTC)
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)

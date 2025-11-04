@@ -306,6 +306,20 @@ class Database:
             )
             return cur.rowcount > 0
 
+    def cancel_booking(self, booking_id: int) -> bool:
+        now_iso = utc_now().isoformat()
+        with self._lock, self.connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE bookings
+                SET status = 'cancelled',
+                    updated_utc = ?
+                WHERE id = ? AND status = 'active'
+                """,
+                (now_iso, booking_id),
+            )
+            return cur.rowcount > 0
+
     def list_bookings_for_window(
         self,
         *,

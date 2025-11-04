@@ -49,6 +49,49 @@
       padding-top: 1.5rem;
       border-top: 1px solid #e2e8f0;
     }
+    #manage-booking-panel {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #e2e8f0;
+    }
+    #manage-booking-summary {
+      margin: 0 0 1rem;
+      font-size: 0.95rem;
+      color: #475569;
+    }
+    #manage-booking-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .manage-booking-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 0.75rem;
+    }
+    .manage-booking-details {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.9rem;
+    }
+    .manage-booking-heading {
+      font-weight: 600;
+      color: #1f2937;
+    }
+    .manage-booking-item button {
+      width: auto;
+      flex-shrink: 0;
+      padding: 0.4rem 0.75rem;
+    }
     #status-panel {
       position: fixed;
       top: 1.5rem;
@@ -357,6 +400,12 @@
           </div>
         </form>
       </div>
+      <div id="manage-booking-panel" hidden>
+        <h3>Manage Bookings</h3>
+        <p id="manage-booking-summary"></p>
+        <ul id="manage-booking-list"></ul>
+        <button type="button" id="manage-booking-close">Hide booking manager</button>
+      </div>
     </section>
 
     <section id="status-panel" hidden>
@@ -377,6 +426,10 @@
     const statusMessage = document.getElementById('status-message');
     const bookingForm = document.getElementById('booking-form');
     const userLabelInput = document.getElementById('user-label');
+    const managePanel = document.getElementById('manage-booking-panel');
+    const manageSummary = document.getElementById('manage-booking-summary');
+    const manageList = document.getElementById('manage-booking-list');
+    const manageCloseButton = document.getElementById('manage-booking-close');
     const priorityLabels = {
       high: { text: 'High', cell: 'cell-booked-high' },
       medium: { text: 'Medium', cell: 'cell-booked-medium' },
@@ -449,6 +502,39 @@
       if (statusFadeTimer) {
         clearTimeout(statusFadeTimer);
         statusFadeTimer = null;
+      }
+    }
+
+    function formatDateTimeLabel(isoString) {
+      if (!isoString) {
+        return '';
+      }
+      const date = new Date(isoString);
+      if (Number.isNaN(date.getTime())) {
+        return isoString;
+      }
+      return date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    }
+
+    function hideManagePanel() {
+      if (managePanel) {
+        managePanel.hidden = true;
+        delete managePanel.dataset.nodeId;
+        delete managePanel.dataset.gpuId;
+        delete managePanel.dataset.dayKey;
+      }
+      if (manageSummary) {
+        manageSummary.textContent = '';
+      }
+      if (manageList) {
+        manageList.innerHTML = '';
       }
     }
 
@@ -699,6 +785,7 @@
     async function loadAvailability() {
       ensureDateValue();
       clearSelection();
+      hideManagePanel();
       const nodeId = nodeSelect.value;
       const { startIso, endIso } = buildIntervalIsoStrings(dateInput.value);
       try {
@@ -737,6 +824,7 @@
 
     function renderAvailability(datasets) {
       clearSelection();
+      hideManagePanel();
       availabilityContainer.innerHTML = '';
 
       const validData = datasets.filter((entry) => entry && entry.data && entry.data.grid && Array.isArray(entry.data.grid.hours));
@@ -815,59 +903,78 @@
             td.dataset.nodeId = node.id;
             td.dataset.dayStart = day.start;
 
-          let bookedHours = 0;
-          let bestPriority = 'medium';
-          let bestRank = -1;
-          let representativeBooking = null;
-          const priorityRank = { low: 0, medium: 1, high: 2 };
-            const bookingSummaries = [];
+            let bookedHours = 0;
+            let bestPriority = 'medium';
+            let bestRank = -1;
+            let representativeBooking = null;
+            const priorityRank = { low: 0, medium: 1, high: 2 };
+            const bookingMap = new Map();
 
-          day.indices.forEach((hourIdx) => {
-            const slot = slots[hourIdx];
-            if (slot && slot.status === 'booked' && slot.booking) {
-              bookedHours += 1;
-              const booking = slot.booking;
-              const priorityKey = (booking.priority || 'medium').toLowerCase();
-              const rank = priorityRank[priorityKey] ?? 1;
-              if (rank > bestRank) {
-                bestPriority = priorityKey;
-                bestRank = rank;
-                representativeBooking = booking;
+            day.indices.forEach((hourIdx) => {
+              const slot = slots[hourIdx];
+              if (slot && slot.status === 'booked' && slot.booking) {
+                bookedHours += 1;
+                const booking = slot.booking;
+                const priorityKey = (booking.priority || 'medium').toLowerCase();
+                const rank = priorityRank[priorityKey] ?? 1;
+                if (rank > bestRank) {
+                  bestPriority = priorityKey;
+                  bestRank = rank;
+                  representativeBooking = booking;
+                }
+                const existing = bookingMap.get(booking.id);
+                if (!existing) {
+                  bookingMap.set(booking.id, {
+                    id: booking.id,
+                    label: booking.user_label,
+                    user_label: booking.user_label,
+                    priority: priorityKey,
+                    start: booking.start,
+                    end: booking.end,
+                    hours: 1,
+                    node_id: node.id,
+                    gpu_id: gpu.id,
+                  });
+                } else {
+                  existing.hours += 1;
+                  if (booking.start < existing.start) {
+                    existing.start = booking.start;
+                  }
+                  if (booking.end > existing.end) {
+                    existing.end = booking.end;
+                  }
+                }
               }
-              bookingSummaries.push({
-                id: booking.id,
-                label: booking.user_label,
-                priority: priorityKey,
-              });
-            }
-          });
+            });
 
+            const bookingSummaries = Array.from(bookingMap.values());
             const totalHours = day.indices.length || 24;
             if (bookedHours === 0) {
               td.classList.add('cell-free');
               td.dataset.status = 'free';
+              delete td.dataset.bookings;
               td.textContent = 'Free';
+              td.title = 'Free';
             } else {
               const priorityInfo = priorityLabels[bestPriority] || priorityLabels.medium;
-            td.classList.add(priorityInfo.cell || 'cell-booked-medium');
-            td.dataset.status = bookedHours === totalHours ? 'occupied' : 'partial';
-            if (day.key === todayKey) {
-              td.classList.add('cell-current-day');
-            }
-            const userSpan = document.createElement('span');
-            userSpan.className = 'cell-user';
-            const label = representativeBooking ? representativeBooking.user_label : bookedHours === totalHours ? 'Booked' : 'Partial';
-            userSpan.textContent = label;
-            const detailSpan = document.createElement('span');
-            detailSpan.className = 'cell-detail';
-            detailSpan.textContent = `${bookedHours}h reserved`;
-            td.appendChild(userSpan);
-            td.appendChild(detailSpan);
+              td.classList.add(priorityInfo.cell || 'cell-booked-medium');
+              td.dataset.status = bookedHours === totalHours ? 'occupied' : 'partial';
+              td.dataset.bookings = JSON.stringify(bookingSummaries);
+              const userSpan = document.createElement('span');
+              userSpan.className = 'cell-user';
+              const label = representativeBooking ? representativeBooking.user_label : bookedHours === totalHours ? 'Booked' : 'Partial';
+              userSpan.textContent = label;
+              const detailSpan = document.createElement('span');
+              detailSpan.className = 'cell-detail';
+              detailSpan.textContent = `${bookedHours}h reserved`;
+              td.appendChild(userSpan);
+              td.appendChild(detailSpan);
               if (bookingSummaries.length > 0) {
-                const summary = bookingSummaries[0];
-                td.title = `#${summary.id} ${summary.label} (${summary.priority})`;
+                td.title = bookingSummaries
+                  .map((summary) => `#${summary.id} ${summary.label || summary.user_label || ''} (${summary.priority || 'medium'})`)
+                  .join('\n');
               } else {
-                td.title = `${best_label} (${bestPriority})`;
+                td.title = `${label} (${bestPriority})`;
               }
             }
 
@@ -889,6 +996,123 @@
       scrollToCurrentDay(currentGridDays);
     }
 
+    function showBookingManagement(cell) {
+      if (!managePanel || !manageList || !manageSummary) {
+        return;
+      }
+      const bookingsRaw = cell.dataset.bookings;
+      if (!bookingsRaw) {
+        hideManagePanel();
+        return;
+      }
+      let bookings;
+      try {
+        bookings = JSON.parse(bookingsRaw);
+      } catch (err) {
+        console.error('Failed to parse booking metadata', err);
+        hideManagePanel();
+        setStatus('Unable to inspect booking details.', 'error');
+        return;
+      }
+      if (!Array.isArray(bookings) || bookings.length === 0) {
+        hideManagePanel();
+        return;
+      }
+      manageList.innerHTML = '';
+      const colIndex = parseInt(cell.dataset.colIndex || '', 10);
+      const dayKey = currentGridDays[colIndex] ? currentGridDays[colIndex].key : '';
+      const gpuId = cell.dataset.gpuId || '';
+      const nodeId = cell.dataset.nodeId || '';
+      managePanel.dataset.nodeId = nodeId;
+      managePanel.dataset.gpuId = gpuId;
+      managePanel.dataset.dayKey = dayKey;
+
+      const labels = [];
+      if (nodeId) {
+        labels.push(`Node ${nodeId}`);
+      }
+      if (gpuId) {
+        labels.push(`GPU ${gpuId}`);
+      }
+      if (dayKey) {
+        labels.push(formatDayLabelFromKey(dayKey));
+      }
+      manageSummary.textContent = labels.join(' · ') || 'Selected booking';
+
+      bookings
+        .slice()
+        .sort((a, b) => {
+          const aStart = a.start || '';
+          const bStart = b.start || '';
+          return aStart.localeCompare(bStart);
+        })
+        .forEach((booking) => {
+          const item = document.createElement('li');
+          item.className = 'manage-booking-item';
+
+          const details = document.createElement('div');
+          details.className = 'manage-booking-details';
+
+          const heading = document.createElement('div');
+          heading.className = 'manage-booking-heading';
+          const label = booking.label || booking.user_label || 'Booking';
+          heading.textContent = `#${booking.id} · ${label}`;
+          details.appendChild(heading);
+
+          const timing = document.createElement('div');
+          const startLabel = formatDateTimeLabel(booking.start);
+          const endLabel = formatDateTimeLabel(booking.end);
+          timing.textContent = `${startLabel} → ${endLabel}`;
+          details.appendChild(timing);
+
+          const hoursDetail = document.createElement('div');
+          const hours = booking.hours || 0;
+          const priorityRaw = booking.priority || 'medium';
+          const priorityText = priorityRaw.charAt(0).toUpperCase() + priorityRaw.slice(1);
+          hoursDetail.textContent = `${hours}h reserved · ${priorityText} priority`;
+          details.appendChild(hoursDetail);
+
+          item.appendChild(details);
+
+          const cancelButton = document.createElement('button');
+          cancelButton.type = 'button';
+          cancelButton.textContent = 'Cancel booking';
+          cancelButton.addEventListener('click', () => cancelBooking(booking));
+          item.appendChild(cancelButton);
+
+          manageList.appendChild(item);
+        });
+
+      managePanel.hidden = false;
+    }
+
+    async function cancelBooking(booking) {
+      const bookingId = booking && booking.id;
+      if (!bookingId) {
+        setStatus('Missing booking identifier.', 'error');
+        return;
+      }
+      const label = booking.label || booking.user_label || '';
+      const confirmed = window.confirm(`Cancel booking #${bookingId}${label ? ` (${label})` : ''}?`);
+      if (!confirmed) {
+        return;
+      }
+      try {
+        const response = await fetch(`/api/bookings/${bookingId}`, { method: 'DELETE' });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const message = errorData.error || `Failed to cancel booking (${response.status})`;
+          throw new Error(message);
+        }
+        await response.json().catch(() => ({}));
+        setStatus(`Booking #${bookingId} cancelled.`, 'success');
+        hideManagePanel();
+        await loadAvailability();
+      } catch (err) {
+        setStatus(err.message, 'error');
+      }
+    }
+
     function handleCellMouseDown(event) {
       if (event.button !== undefined && event.button !== 0) {
         return;
@@ -897,11 +1121,14 @@
       if (!cell) {
         return;
       }
-      if (cell.dataset.status === 'booked') {
+      const status = cell.dataset.status;
+      if (status && status !== 'free') {
         clearSelection();
+        showBookingManagement(cell);
         return;
       }
       event.preventDefault();
+      hideManagePanel();
       beginSelection(cell);
     }
 
@@ -923,6 +1150,12 @@
     availabilityContainer.addEventListener('mousedown', handleCellMouseDown);
     availabilityContainer.addEventListener('mouseover', handleCellMouseOver);
     document.addEventListener('mouseup', handleDocumentMouseUp);
+    if (manageCloseButton) {
+      manageCloseButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        hideManagePanel();
+      });
+    }
 
     bookingForm.addEventListener('submit', async (event) => {
       event.preventDefault();
