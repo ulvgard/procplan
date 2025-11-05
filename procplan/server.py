@@ -152,8 +152,15 @@ class ProcPlanHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
             return
 
+        granularity = params.get("granularity", ["hour"])[0] or "hour"
+
         try:
-            availability = self.service.compute_availability(node_id=node_id, start=start, end=end)
+            availability = self.service.compute_availability(
+                node_id=node_id,
+                start=start,
+                end=end,
+                granularity=granularity,
+            )
         except ValueError as exc:
             self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
             return

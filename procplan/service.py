@@ -65,6 +65,7 @@ class ProcPlanService:
         node_id: str,
         start: datetime,
         end: datetime,
+        granularity: str = "hour",
     ) -> Dict[str, Any]:
         node = self.get_node(node_id)
         ensure_hour_alignment(start)
@@ -72,13 +73,95 @@ class ProcPlanService:
         if end <= start:
             raise ValueError("Availability end must be after start")
 
+        granularity_key = granularity.lower()
+        if granularity_key not in {"hour", "day"}:
+            raise ValueError("Granularity must be either 'hour' or 'day'")
+
         booking_rows = self.database.list_bookings_for_window(
             node_id=node_id,
             start_utc=start,
             end_utc=end,
         )
 
-        parsed_bookings: List[Dict[str, Any]] = []
+        parsed_bookings = self._prepare_bookings(booking_rows)
+
+        if granularity_key == "day":
+            return self._build_day_grid(node, start, end, parsed_bookings)
+        return self._build_hour_grid(node, start, end, parsed_bookings)
+
+    def create_booking(
+        self,
+        *,
+        node_id: str,
+        start: datetime,
+        end: datetime,
+        user_label: str,
+        gpu_ids: List[str] | None = None,
+        gpu_count: int | None = None,
+        priority: str | None = None,
+    ) -> Dict[str, Any]:
+        ensure_hour_alignment(start)
+        ensure_hour_alignment(end)
+        if end <= start:
+            raise ValueError("Booking end must be after start")
+        if not user_label.strip():
+            raise ValueError("User label must not be empty")
+
+        node = self.get_node(node_id)
+
+        selected_priority = (priority or "medium").lower()
+        if selected_priority not in PRIORITY_LEVELS:
+            raise ValueError(f"Priority must be one of {', '.join(PRIORITY_LEVELS)}")
+
+        if gpu_ids:
+            candidates = gpu_ids
+        else:
+            if not gpu_count or gpu_count <= 0:
+                raise ValueError("Either gpu_ids or a positive gpu_count must be provided")
+            candidates = self.database.select_available_gpus(
+                node_id=node_id,
+                start_utc=start,
+                end_utc=end,
+                count=gpu_count,
+            )
+            if not candidates:
+                raise ValueError("Not enough GPUs available for the requested window")
+
+        booking_id = self.database.create_booking(
+            node_id=node_id,
+            gpu_ids=candidates,
+            start_utc=start,
+            end_utc=end,
+            user_label=user_label.strip(),
+            priority=selected_priority,
+        )
+
+        return {
+            "booking_id": booking_id,
+            "node_id": node_id,
+            "gpu_ids": candidates,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "user_label": user_label.strip(),
+            "priority": selected_priority,
+        }
+
+    def mark_booking_complete(self, booking_id: int) -> bool:
+        return self.database.mark_booking_done(booking_id=booking_id)
+
+    def cancel_booking(self, booking_id: int) -> bool:
+        return self.database.cancel_booking(booking_id=booking_id)
+
+    def default_availability_window(self) -> Tuple[datetime, datetime]:
+        now = datetime.now(tz=UTC)
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if now.hour >= 20:
+            day_start = day_start + timedelta(days=1)
+        day_end = day_start + timedelta(days=1)
+        return day_start, day_end
+
+    def _prepare_bookings(self, booking_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        parsed: List[Dict[str, Any]] = []
         for row in booking_rows:
             b_start = parse_iso_timestamp(row["start_utc"])
             b_end = parse_iso_timestamp(row["end_utc"])
@@ -92,7 +175,7 @@ class ProcPlanService:
                 "gpu_ids": gpu_ids,
                 "priority": row["priority"],
             }
-            parsed_bookings.append(
+            parsed.append(
                 {
                     "start": b_start,
                     "end": b_end,
@@ -101,7 +184,15 @@ class ProcPlanService:
                     "public": public_payload,
                 }
             )
+        return parsed
 
+    def _build_hour_grid(
+        self,
+        node: Node,
+        start: datetime,
+        end: datetime,
+        parsed_bookings: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
         hours_payload: List[Dict[str, Any]] = []
         gpu_cells: Dict[str, List[Dict[str, Any]]] = {gpu.id: [] for gpu in node.gpus}
         grid_hours: List[Dict[str, Any]] = []
@@ -174,73 +265,114 @@ class ProcPlanService:
             },
         }
 
-    def create_booking(
+    def _build_day_grid(
         self,
-        *,
-        node_id: str,
+        node: Node,
         start: datetime,
         end: datetime,
-        user_label: str,
-        gpu_ids: List[str] | None = None,
-        gpu_count: int | None = None,
-        priority: str | None = None,
+        parsed_bookings: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        ensure_hour_alignment(start)
-        ensure_hour_alignment(end)
-        if end <= start:
-            raise ValueError("Booking end must be after start")
-        if not user_label.strip():
-            raise ValueError("User label must not be empty")
-
-        node = self.get_node(node_id)
-
-        selected_priority = (priority or "medium").lower()
-        if selected_priority not in PRIORITY_LEVELS:
-            raise ValueError(f"Priority must be one of {', '.join(PRIORITY_LEVELS)}")
-
-        if gpu_ids:
-            candidates = gpu_ids
-        else:
-            if not gpu_count or gpu_count <= 0:
-                raise ValueError("Either gpu_ids or a positive gpu_count must be provided")
-            candidates = self.database.select_available_gpus(
-                node_id=node_id,
-                start_utc=start,
-                end_utc=end,
-                count=gpu_count,
+        day_cursor = start
+        day_entries: List[Dict[str, Any]] = []
+        while day_cursor < end:
+            next_day = min(day_cursor + timedelta(days=1), end)
+            day_entries.append(
+                {
+                    "key": day_cursor.date().isoformat(),
+                    "start": day_cursor,
+                    "end": next_day,
+                }
             )
-            if not candidates:
-                raise ValueError("Not enough GPUs available for the requested window")
+            day_cursor = next_day
 
-        booking_id = self.database.create_booking(
-            node_id=node_id,
-            gpu_ids=candidates,
-            start_utc=start,
-            end_utc=end,
-            user_label=user_label.strip(),
-            priority=selected_priority,
-        )
+        bookings_by_gpu: Dict[str, List[Dict[str, Any]]] = {gpu.id: [] for gpu in node.gpus}
+        for booking in parsed_bookings:
+            for gpu_id in booking["gpu_ids"]:
+                if gpu_id in bookings_by_gpu:
+                    bookings_by_gpu[gpu_id].append(booking)
+
+        priority_rank = {"low": 0, "medium": 1, "high": 2}
+        grid_rows: List[Dict[str, Any]] = []
+
+        for gpu in node.gpus:
+            gpu_day_slots: List[Dict[str, Any]] = []
+            relevant_bookings = bookings_by_gpu.get(gpu.id, [])
+            for day in day_entries:
+                day_start: datetime = day["start"]
+                day_end: datetime = day["end"]
+                total_hours = int((day_end - day_start).total_seconds() // 3600)
+                booked_hours = 0
+                slot_bookings: List[Dict[str, Any]] = []
+                best_priority = "medium"
+                best_rank = -1
+
+                for booking in relevant_bookings:
+                    overlap_start = max(day_start, booking["start"])
+                    overlap_end = min(day_end, booking["end"])
+                    if overlap_start >= overlap_end:
+                        continue
+
+                    overlap_hours = int((overlap_end - overlap_start).total_seconds() // 3600)
+                    if overlap_hours <= 0:
+                        continue
+
+                    if booking["status"] == "active":
+                        booked_hours += overlap_hours
+                        summary = dict(booking["public"])
+                        summary["hours"] = overlap_hours
+                        summary["overlap_start"] = overlap_start.isoformat()
+                        summary["overlap_end"] = overlap_end.isoformat()
+                        slot_bookings.append(summary)
+
+                        priority = (summary.get("priority") or "medium").lower()
+                        rank = priority_rank.get(priority, 1)
+                        if rank > best_rank:
+                            best_rank = rank
+                            best_priority = priority
+
+                if booked_hours <= 0:
+                    status = "free"
+                elif booked_hours >= total_hours:
+                    status = "occupied"
+                else:
+                    status = "partial"
+
+                gpu_day_slots.append(
+                    {
+                        "start": day_start.isoformat(),
+                        "end": day_end.isoformat(),
+                        "status": status,
+                        "booked_hours": booked_hours,
+                        "total_hours": total_hours,
+                        "priority": best_priority if booked_hours > 0 else None,
+                        "bookings": slot_bookings,
+                    }
+                )
+
+            grid_rows.append(
+                {
+                    "gpu": {"id": gpu.id, "kind": gpu.kind},
+                    "day_slots": gpu_day_slots,
+                }
+            )
+
+        grid_days = [
+            {
+                "key": entry["key"],
+                "start": entry["start"].isoformat(),
+                "end": entry["end"].isoformat(),
+            }
+            for entry in day_entries
+        ]
 
         return {
-            "booking_id": booking_id,
-            "node_id": node_id,
-            "gpu_ids": candidates,
+            "node": self._node_to_dict(node),
             "start": start.isoformat(),
             "end": end.isoformat(),
-            "user_label": user_label.strip(),
-            "priority": selected_priority,
+            "hours": [],
+            "grid": {
+                "hours": [],
+                "days": grid_days,
+                "rows": grid_rows,
+            },
         }
-
-    def mark_booking_complete(self, booking_id: int) -> bool:
-        return self.database.mark_booking_done(booking_id=booking_id)
-
-    def cancel_booking(self, booking_id: int) -> bool:
-        return self.database.cancel_booking(booking_id=booking_id)
-
-    def default_availability_window(self) -> Tuple[datetime, datetime]:
-        now = datetime.now(tz=UTC)
-        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        if now.hour >= 20:
-            day_start = day_start + timedelta(days=1)
-        day_end = day_start + timedelta(days=1)
-        return day_start, day_end

@@ -793,7 +793,7 @@
         if (!nodeId || nodeId === 'all') {
           datasets = await Promise.all(
             nodesCache.map(async (node) => {
-              const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}`);
+              const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}&granularity=day`);
               if (!resp.ok) {
                 throw new Error(`Failed to load availability for ${node.name} (${resp.status})`);
               }
@@ -806,7 +806,7 @@
           if (!node) {
             throw new Error('Unknown node selected');
           }
-          const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}`);
+          const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}&granularity=day`);
           if (!resp.ok) {
             throw new Error(`Failed to load availability (${resp.status})`);
           }
@@ -827,29 +827,50 @@
       hideManagePanel();
       availabilityContainer.innerHTML = '';
 
-      const validData = datasets.filter((entry) => entry && entry.data && entry.data.grid && Array.isArray(entry.data.grid.hours));
+      const validData = datasets.filter((entry) => entry && entry.data && entry.data.grid);
       if (validData.length === 0) {
         currentGridDays = [];
         return;
       }
 
-      const hours = validData[0].data.grid.hours;
-      const dayMap = new Map();
-      const dayList = [];
-      hours.forEach((hour, index) => {
-        const dayKey = hour.start.substring(0, 10);
-        let dayEntry = dayMap.get(dayKey);
-        if (!dayEntry) {
-          dayEntry = { key: dayKey, start: hour.start, indices: [] };
-          dayMap.set(dayKey, dayEntry);
-          dayList.push(dayEntry);
-        }
-        dayEntry.indices.push(index);
+      const firstGrid = validData[0].data.grid || {};
+      const candidateDays = Array.isArray(firstGrid.days) ? firstGrid.days : [];
+      const hasDayAggregation = candidateDays.length > 0;
+      const usingDayAggregation = hasDayAggregation && validData.every((entry) => {
+        const grid = entry?.data?.grid;
+        return grid && Array.isArray(grid.days) && grid.days.length === candidateDays.length;
       });
+
+      let dayList = [];
+      if (usingDayAggregation) {
+        dayList = candidateDays.map((day, index) => ({
+          key: day.key,
+          start: day.start,
+          end: day.end,
+          slotIndex: index,
+        }));
+      } else {
+        const hours = Array.isArray(firstGrid.hours) ? firstGrid.hours : [];
+        const dayMap = new Map();
+        hours.forEach((hour, index) => {
+          if (!hour || !hour.start) {
+            return;
+          }
+          const dayKey = hour.start.substring(0, 10);
+          let dayEntry = dayMap.get(dayKey);
+          if (!dayEntry) {
+            dayEntry = { key: dayKey, start: hour.start, indices: [] };
+            dayMap.set(dayKey, dayEntry);
+            dayList.push(dayEntry);
+          }
+          dayEntry.indices.push(index);
+        });
+      }
 
       currentGridDays = dayList.map((day) => ({ key: day.key, start: day.start }));
 
       const todayKey = new Date().toISOString().substring(0, 10);
+      const priorityRank = { low: 0, medium: 1, high: 2 };
 
       validData.forEach(({ node, data }) => {
         const wrapper = document.createElement('div');
@@ -895,6 +916,26 @@
           tr.appendChild(labelCell);
 
           const slots = row.hour_slots || [];
+          const daySlots = row.day_slots || [];
+          let datasetDayIndices = [];
+          if (!usingDayAggregation) {
+            const gridHours = Array.isArray(data.grid.hours) ? data.grid.hours : [];
+            const dayIndexMap = new Map();
+            gridHours.forEach((hour, hourIdx) => {
+              if (!hour || !hour.start) {
+                return;
+              }
+              const dayKey = hour.start.substring(0, 10);
+              let bucket = dayIndexMap.get(dayKey);
+              if (!bucket) {
+                bucket = [];
+                dayIndexMap.set(dayKey, bucket);
+              }
+              bucket.push(hourIdx);
+            });
+            datasetDayIndices = dayList.map((day) => dayIndexMap.get(day.key) || []);
+          }
+
           dayList.forEach((day, index) => {
             const td = document.createElement('td');
             td.classList.add('grid-cell');
@@ -903,78 +944,133 @@
             td.dataset.nodeId = node.id;
             td.dataset.dayStart = day.start;
 
-            let bookedHours = 0;
-            let bestPriority = 'medium';
-            let bestRank = -1;
-            let representativeBooking = null;
-            const priorityRank = { low: 0, medium: 1, high: 2 };
-            const bookingMap = new Map();
+            if (usingDayAggregation) {
+              const slotIndex = day.slotIndex ?? index;
+              const slot = daySlots[slotIndex] || null;
+              const bookedHours = slot ? Number(slot.booked_hours || 0) : 0;
+              const totalHours = slot ? Number(slot.total_hours || 24) : 24;
 
-            day.indices.forEach((hourIdx) => {
-              const slot = slots[hourIdx];
-              if (slot && slot.status === 'booked' && slot.booking) {
-                bookedHours += 1;
-                const booking = slot.booking;
-                const priorityKey = (booking.priority || 'medium').toLowerCase();
-                const rank = priorityRank[priorityKey] ?? 1;
-                if (rank > bestRank) {
-                  bestPriority = priorityKey;
-                  bestRank = rank;
-                  representativeBooking = booking;
-                }
-                const existing = bookingMap.get(booking.id);
-                if (!existing) {
-                  bookingMap.set(booking.id, {
-                    id: booking.id,
-                    label: booking.user_label,
-                    user_label: booking.user_label,
-                    priority: priorityKey,
-                    start: booking.start,
-                    end: booking.end,
-                    hours: 1,
-                    node_id: node.id,
-                    gpu_id: gpu.id,
-                  });
+              if (!slot || bookedHours === 0) {
+                td.classList.add('cell-free');
+                td.dataset.status = 'free';
+                delete td.dataset.bookings;
+                td.textContent = 'Free';
+                td.title = 'Free';
+              } else {
+                const priorityKey = (slot.priority || 'medium').toLowerCase();
+                const priorityInfo = priorityLabels[priorityKey] || priorityLabels.medium;
+                td.classList.add(priorityInfo.cell || 'cell-booked-medium');
+                td.dataset.status = slot.status || (bookedHours === totalHours ? 'occupied' : 'partial');
+                const bookings = Array.isArray(slot.bookings) ? slot.bookings : [];
+                if (bookings.length > 0) {
+                  td.dataset.bookings = JSON.stringify(bookings);
                 } else {
-                  existing.hours += 1;
-                  if (booking.start < existing.start) {
-                    existing.start = booking.start;
+                  delete td.dataset.bookings;
+                }
+
+                let representativeBooking = null;
+                let bestRank = -1;
+                bookings.forEach((booking) => {
+                  const priority = (booking.priority || 'medium').toLowerCase();
+                  const rank = priorityRank[priority] ?? 1;
+                  if (rank > bestRank) {
+                    bestRank = rank;
+                    representativeBooking = booking;
                   }
-                  if (booking.end > existing.end) {
-                    existing.end = booking.end;
-                  }
+                });
+
+                const userSpan = document.createElement('span');
+                userSpan.className = 'cell-user';
+                const label = representativeBooking ? (representativeBooking.user_label || 'Booked') : (bookedHours === totalHours ? 'Booked' : 'Partial');
+                userSpan.textContent = label;
+                const detailSpan = document.createElement('span');
+                detailSpan.className = 'cell-detail';
+                detailSpan.textContent = `${bookedHours}h reserved`;
+                td.appendChild(userSpan);
+                td.appendChild(detailSpan);
+
+                if (bookings.length > 0) {
+                  td.title = bookings
+                    .map((booking) => `#${booking.id} ${booking.user_label || ''} (${booking.priority || 'medium'})`)
+                    .join('\n');
+                } else {
+                  td.title = `${label} (${priorityKey})`;
                 }
               }
-            });
-
-            const bookingSummaries = Array.from(bookingMap.values());
-            const totalHours = day.indices.length || 24;
-            if (bookedHours === 0) {
-              td.classList.add('cell-free');
-              td.dataset.status = 'free';
-              delete td.dataset.bookings;
-              td.textContent = 'Free';
-              td.title = 'Free';
             } else {
-              const priorityInfo = priorityLabels[bestPriority] || priorityLabels.medium;
-              td.classList.add(priorityInfo.cell || 'cell-booked-medium');
-              td.dataset.status = bookedHours === totalHours ? 'occupied' : 'partial';
-              td.dataset.bookings = JSON.stringify(bookingSummaries);
-              const userSpan = document.createElement('span');
-              userSpan.className = 'cell-user';
-              const label = representativeBooking ? representativeBooking.user_label : bookedHours === totalHours ? 'Booked' : 'Partial';
-              userSpan.textContent = label;
-              const detailSpan = document.createElement('span');
-              detailSpan.className = 'cell-detail';
-              detailSpan.textContent = `${bookedHours}h reserved`;
-              td.appendChild(userSpan);
-              td.appendChild(detailSpan);
-              if (bookingSummaries.length > 0) {
-                td.title = bookingSummaries
-                  .map((summary) => `#${summary.id} ${summary.label || summary.user_label || ''} (${summary.priority || 'medium'})`)
-                  .join('\n');
+              let bookedHours = 0;
+              let bestPriority = 'medium';
+              let bestRank = -1;
+              let representativeBooking = null;
+              const bookingMap = new Map();
+
+              const hourIndices = datasetDayIndices[index] || [];
+              hourIndices.forEach((hourIdx) => {
+                const slot = slots[hourIdx];
+                if (slot && slot.status === 'booked' && slot.booking) {
+                  bookedHours += 1;
+                  const booking = slot.booking;
+                  const priorityKey = (booking.priority || 'medium').toLowerCase();
+                  const rank = priorityRank[priorityKey] ?? 1;
+                  if (rank > bestRank) {
+                    bestPriority = priorityKey;
+                    bestRank = rank;
+                    representativeBooking = booking;
+                  }
+                  const existing = bookingMap.get(booking.id);
+                  if (!existing) {
+                    bookingMap.set(booking.id, {
+                      id: booking.id,
+                      label: booking.user_label,
+                      user_label: booking.user_label,
+                      priority: priorityKey,
+                      start: booking.start,
+                      end: booking.end,
+                      hours: 1,
+                      node_id: node.id,
+                      gpu_id: gpu.id,
+                    });
+                  } else {
+                    existing.hours += 1;
+                    if (booking.start < existing.start) {
+                      existing.start = booking.start;
+                    }
+                    if (booking.end > existing.end) {
+                      existing.end = booking.end;
+                    }
+                  }
+                }
+              });
+
+              const bookingSummaries = Array.from(bookingMap.values());
+              const totalHours = hourIndices.length || 24;
+              if (bookedHours === 0) {
+                td.classList.add('cell-free');
+                td.dataset.status = 'free';
+                delete td.dataset.bookings;
+                td.textContent = 'Free';
+                td.title = 'Free';
               } else {
-                td.title = `${label} (${bestPriority})`;
+                const priorityInfo = priorityLabels[bestPriority] || priorityLabels.medium;
+                td.classList.add(priorityInfo.cell || 'cell-booked-medium');
+                td.dataset.status = bookedHours === totalHours ? 'occupied' : 'partial';
+                td.dataset.bookings = JSON.stringify(bookingSummaries);
+                const userSpan = document.createElement('span');
+                userSpan.className = 'cell-user';
+                const label = representativeBooking ? representativeBooking.user_label : bookedHours === totalHours ? 'Booked' : 'Partial';
+                userSpan.textContent = label;
+                const detailSpan = document.createElement('span');
+                detailSpan.className = 'cell-detail';
+                detailSpan.textContent = `${bookedHours}h reserved`;
+                td.appendChild(userSpan);
+                td.appendChild(detailSpan);
+                if (bookingSummaries.length > 0) {
+                  td.title = bookingSummaries
+                    .map((summary) => `#${summary.id} ${summary.label || summary.user_label || ''} (${summary.priority || 'medium'})`)
+                    .join('\n');
+                } else {
+                  td.title = `${label} (${bestPriority})`;
+                }
               }
             }
 

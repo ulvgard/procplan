@@ -49,27 +49,35 @@ def render_availability(base_url: str, node_id: str, start: datetime, end: datet
             "node_id": node_id,
             "start": start.isoformat(),
             "end": end.isoformat(),
+            "granularity": "day",
         }
     )
     availability_url = urllib.parse.urljoin(base_url, f"/api/availability?{query}")
     availability = fetch_json(availability_url)
     grid = availability.get("grid") or {}
-    hours = grid.get("hours") or []
     rows = grid.get("rows") or []
-
-    # Build day buckets from hourly data.
-    day_map: dict[str, dict[str, List[int]]] = {}
-    for idx, hour in enumerate(hours):
-        start_iso = hour.get("start")
-        if not start_iso:
-            continue
-        day_key = start_iso[:10]
-        bucket = day_map.setdefault(day_key, {"indices": [], "start": start_iso})
-        bucket["indices"].append(idx)
-    day_items = sorted(day_map.items(), key=lambda item: item[1]["start"])
-    day_keys = [key for key, _ in day_items]
+    days = grid.get("days") or []
 
     priority_rank = {"low": 0, "medium": 1, "high": 2}
+
+    use_day_slots = days and all("day_slots" in row for row in rows)
+
+    if use_day_slots:
+        day_keys = [day.get("key", "") for day in days]
+        day_indices = list(range(len(day_keys)))
+    else:
+        hours = grid.get("hours") or []
+        day_map: dict[str, dict[str, List[int]]] = {}
+        for idx, hour in enumerate(hours):
+            start_iso = hour.get("start")
+            if not start_iso:
+                continue
+            day_key = start_iso[:10]
+            bucket = day_map.setdefault(day_key, {"indices": [], "start": start_iso})
+            bucket["indices"].append(idx)
+        day_items = sorted(day_map.items(), key=lambda item: item[1]["start"])
+        day_keys = [key for key, _ in day_items]
+        day_indices = [item[1]["indices"] for item in day_items]
 
     table_rows: List[List[str]] = []
     header = ["GPU"] + day_keys
@@ -78,26 +86,44 @@ def render_availability(base_url: str, node_id: str, start: datetime, end: datet
         gpu = row.get("gpu") or {}
         label = f"{gpu.get('id', 'GPU')} ({gpu.get('kind', '-')})"
         cells: List[str] = [label]
-        slots = row.get("hour_slots") or []
-        for key, info in day_items:
-            indices = info["indices"]
-            best_rank = -1
-            best_label = "-"
-            for idx in indices:
-                if idx >= len(slots):
+        if use_day_slots:
+            slots = row.get("day_slots") or []
+            for idx in range(len(day_keys)):
+                slot = slots[idx] if idx < len(slots) else None
+                if not slot or slot.get("status") == "free":
+                    cells.append("-")
                     continue
-                slot = slots[idx] or {}
-                if slot.get("status") != "booked":
-                    continue
-                booking = slot.get("booking") or {}
-                priority = (booking.get("priority") or "medium").lower()
-                rank = priority_rank.get(priority, 1)
-                if rank >= best_rank:
-                    best_rank = rank
-                    user = booking.get("user_label") or ""
-                    priority_text = priority.capitalize()
-                    best_label = f"{user} ({priority_text})" if user else priority_text
-            cells.append(best_label)
+                best_rank = -1
+                best_label = "-"
+                for booking in slot.get("bookings", []):
+                    priority = (booking.get("priority") or "medium").lower()
+                    rank = priority_rank.get(priority, 1)
+                    if rank >= best_rank:
+                        best_rank = rank
+                        user = booking.get("user_label") or ""
+                        priority_text = priority.capitalize()
+                        best_label = f"{user} ({priority_text})" if user else priority_text
+                cells.append(best_label)
+        else:
+            slots = row.get("hour_slots") or []
+            for indices in day_indices:
+                best_rank = -1
+                best_label = "-"
+                for idx in indices:
+                    if idx >= len(slots):
+                        continue
+                    slot = slots[idx] or {}
+                    if slot.get("status") != "booked":
+                        continue
+                    booking = slot.get("booking") or {}
+                    priority = (booking.get("priority") or "medium").lower()
+                    rank = priority_rank.get(priority, 1)
+                    if rank >= best_rank:
+                        best_rank = rank
+                        user = booking.get("user_label") or ""
+                        priority_text = priority.capitalize()
+                        best_label = f"{user} ({priority_text})" if user else priority_text
+                cells.append(best_label)
         table_rows.append(cells)
 
     # Determine column widths
