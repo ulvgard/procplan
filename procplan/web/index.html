@@ -393,7 +393,7 @@
             </div>
           </div>
           <div>
-            <p>Select one or more free day cells in the grid to choose GPU and duration.</p>
+            <p>Select free day cells in the grid (drag horizontally or vertically) to choose GPU(s) and duration.</p>
           </div>
           <div style="margin-top: 1rem;">
             <button type="submit">Book Slot</button>
@@ -442,10 +442,13 @@
     let currentGridDays = [];
     let selectionState = {
       active: false,
-      row: null,
-      baseIndex: null,
-      startIdx: null,
-      endIdx: null,
+      table: null,
+      baseRow: null,
+      baseCol: null,
+      startRow: null,
+      endRow: null,
+      startCol: null,
+      endCol: null,
     };
     let selectedCellElements = [];
     let pendingSelection = null;
@@ -554,10 +557,13 @@
       clearSelectionDisplay();
       selectionState = {
         active: false,
-        row: null,
-        baseIndex: null,
-        startIdx: null,
-        endIdx: null,
+        table: null,
+        baseRow: null,
+        baseCol: null,
+        startRow: null,
+        endRow: null,
+        startCol: null,
+        endCol: null,
       };
       pendingSelection = null;
     }
@@ -568,35 +574,84 @@
       return dayKey < todayKey;
     }
 
-    function applySelection(rowEl, startIdx, endIdx) {
+    function getCellCoordinates(cell) {
+      if (!cell) {
+        return null;
+      }
+      const rowEl = cell.closest('tr');
       if (!rowEl) {
+        return null;
+      }
+      const tbody = rowEl.parentElement;
+      if (!tbody) {
+        return null;
+      }
+      const table = tbody.closest('table');
+      if (!table) {
+        return null;
+      }
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const rowIndex = rows.indexOf(rowEl);
+      const colIndex = parseInt(cell.dataset.colIndex || '', 10);
+      if (rowIndex < 0 || Number.isNaN(colIndex)) {
+        return null;
+      }
+      return { table, rows, rowIndex, colIndex };
+    }
+
+    function applySelection(table, startRow, endRow, startCol, endCol) {
+      if (!table) {
         return false;
       }
-      const rowCells = Array.from(rowEl.querySelectorAll('td.grid-cell'));
-      if (rowCells.length === 0) {
+      const tbody = table.tBodies[0];
+      if (!tbody) {
         return false;
       }
-      const first = Math.min(startIdx, endIdx);
-      const last = Math.max(startIdx, endIdx);
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      if (rows.length === 0) {
+        return false;
+      }
+      const firstRow = Math.min(startRow, endRow);
+      const lastRow = Math.max(startRow, endRow);
+      const firstCol = Math.min(startCol, endCol);
+      const lastCol = Math.max(startCol, endCol);
+      if (firstRow < 0 || lastRow >= rows.length) {
+        return false;
+      }
       const dayKeys = currentGridDays.map((day) => day.key);
-      for (let idx = first; idx <= last; idx += 1) {
-        const cell = rowCells[idx];
-        if (!cell || cell.dataset.status !== 'free') {
+
+      for (let rowIdx = firstRow; rowIdx <= lastRow; rowIdx += 1) {
+        const row = rows[rowIdx];
+        const rowCells = Array.from(row.querySelectorAll('td.grid-cell'));
+        if (rowCells.length === 0) {
           return false;
         }
-        const dayKey = dayKeys[idx];
-        if (dayKey && isInPast(dayKey)) {
-          return false;
+        for (let colIdx = firstCol; colIdx <= lastCol; colIdx += 1) {
+          const cell = rowCells[colIdx];
+          if (!cell || cell.dataset.status !== 'free') {
+            return false;
+          }
+          const dayKey = dayKeys[colIdx];
+          if (dayKey && isInPast(dayKey)) {
+            return false;
+          }
         }
       }
+
       clearSelectionDisplay();
-      for (let idx = first; idx <= last; idx += 1) {
-        const cell = rowCells[idx];
-        cell.classList.add('cell-selected');
-        selectedCellElements.push(cell);
+      for (let rowIdx = firstRow; rowIdx <= lastRow; rowIdx += 1) {
+        const row = rows[rowIdx];
+        const rowCells = Array.from(row.querySelectorAll('td.grid-cell'));
+        for (let colIdx = firstCol; colIdx <= lastCol; colIdx += 1) {
+          const cell = rowCells[colIdx];
+          cell.classList.add('cell-selected');
+          selectedCellElements.push(cell);
+        }
       }
-      selectionState.startIdx = first;
-      selectionState.endIdx = last;
+      selectionState.startRow = firstRow;
+      selectionState.endRow = lastRow;
+      selectionState.startCol = firstCol;
+      selectionState.endCol = lastCol;
       return true;
     }
 
@@ -604,12 +659,12 @@
       if (!cell) {
         return;
       }
-      const colIndex = parseInt(cell.dataset.colIndex || '', 10);
-      if (Number.isNaN(colIndex) || cell.dataset.status !== 'free') {
+      const position = getCellCoordinates(cell);
+      if (!position || cell.dataset.status !== 'free') {
         clearSelection();
         return;
       }
-      const dayKey = currentGridDays[colIndex] ? currentGridDays[colIndex].key : null;
+      const dayKey = currentGridDays[position.colIndex] ? currentGridDays[position.colIndex].key : null;
       if (dayKey && isInPast(dayKey)) {
         clearSelection();
         setStatus('Cannot book days in the past.', 'error');
@@ -617,31 +672,39 @@
       }
       clearSelection();
       selectionState.active = true;
-      selectionState.baseIndex = colIndex;
-      selectionState.row = cell.parentElement;
-      selectionState.row.dataset.gpuId = selectionState.row.dataset.gpuId || cell.dataset.gpuId;
-      applySelection(selectionState.row, colIndex, colIndex);
+      selectionState.table = position.table;
+      selectionState.baseRow = position.rowIndex;
+      selectionState.baseCol = position.colIndex;
+      applySelection(selectionState.table, position.rowIndex, position.rowIndex, position.colIndex, position.colIndex);
     }
 
     function extendSelection(cell) {
-      if (!selectionState.active || !selectionState.row) {
+      if (
+        !selectionState.active ||
+        !selectionState.table ||
+        selectionState.baseRow === null ||
+        selectionState.baseCol === null
+      ) {
         return;
       }
-      if (!cell || cell.parentElement !== selectionState.row) {
+      const position = getCellCoordinates(cell);
+      if (!position || position.table !== selectionState.table) {
         return;
       }
       if (cell.dataset.status !== 'free') {
         return;
       }
-      const colIndex = parseInt(cell.dataset.colIndex || '', 10);
-      if (Number.isNaN(colIndex)) {
-        return;
-      }
-      const dayKey = currentGridDays[colIndex] ? currentGridDays[colIndex].key : null;
+      const dayKey = currentGridDays[position.colIndex] ? currentGridDays[position.colIndex].key : null;
       if (dayKey && isInPast(dayKey)) {
         return;
       }
-      applySelection(selectionState.row, selectionState.baseIndex, colIndex);
+      applySelection(
+        selectionState.table,
+        selectionState.baseRow,
+        position.rowIndex,
+        selectionState.baseCol,
+        position.colIndex
+      );
     }
 
     function finalizeSelection() {
@@ -649,26 +712,54 @@
         return;
       }
       selectionState.active = false;
-      if (selectionState.row && selectionState.startIdx !== null && selectionState.endIdx !== null) {
+      if (
+        selectionState.table &&
+        selectionState.startRow !== null &&
+        selectionState.endRow !== null &&
+        selectionState.startCol !== null &&
+        selectionState.endCol !== null
+      ) {
         updateFormFromSelection();
       }
     }
 
     function updateFormFromSelection() {
-      if (!selectionState.row || selectionState.startIdx === null || selectionState.endIdx === null) {
+      if (
+        !selectionState.table ||
+        selectionState.startRow === null ||
+        selectionState.endRow === null ||
+        selectionState.startCol === null ||
+        selectionState.endCol === null
+      ) {
         return;
       }
-      const startIdx = selectionState.startIdx;
-      const endIdx = selectionState.endIdx;
-      if (!currentGridDays[startIdx]) {
+      const tbody = selectionState.table.tBodies[0];
+      if (!tbody) {
+        return;
+      }
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      const startRow = Math.min(selectionState.startRow, selectionState.endRow);
+      const endRow = Math.max(selectionState.startRow, selectionState.endRow);
+      const startIdx = Math.min(selectionState.startCol, selectionState.endCol);
+      const endIdx = Math.max(selectionState.startCol, selectionState.endCol);
+      if (!currentGridDays[startIdx] || startRow < 0 || endRow >= rows.length) {
         return;
       }
       const slotCount = endIdx - startIdx + 1;
       const startIso = currentGridDays[startIdx].start;
       const durationHours = slotCount * 24;
+      const gpuIds = rows
+        .slice(startRow, endRow + 1)
+        .map((row) => row.dataset.gpuId || '')
+        .filter((id) => id);
+      const uniqueGpuIds = Array.from(new Set(gpuIds));
+      if (uniqueGpuIds.length === 0) {
+        return;
+      }
+      const nodeId = rows[startRow]?.dataset.nodeId || '';
 
-      if (nodeSelect && selectionState.row.dataset.nodeId) {
-        nodeSelect.value = selectionState.row.dataset.nodeId;
+      if (nodeSelect && nodeId) {
+        nodeSelect.value = nodeId;
       }
       if (dateInput) {
         dateInput.value = startIso.substring(0, 10);
@@ -676,12 +767,16 @@
       pendingSelection = {
         startIso,
         durationHours,
-        gpuId: selectionState.row.dataset.gpuId,
-        nodeId: selectionState.row.dataset.nodeId,
+        gpuIds: uniqueGpuIds,
+        nodeId,
         startIdx,
         endIdx,
+        startRow,
+        endRow,
       };
-      setStatus(`Prepared booking for ${slotCount} day(s) on ${selectionState.row.dataset.gpuId}.`, 'info');
+      const dayLabel = slotCount === 1 ? 'day' : 'days';
+      const gpuLabel = uniqueGpuIds.length === 1 ? uniqueGpuIds[0] : `${uniqueGpuIds.length} GPUs`;
+      setStatus(`Prepared booking for ${slotCount} ${dayLabel} on ${gpuLabel}.`, 'info');
     }
 
     function scrollToCurrentDay(days) {
@@ -1272,6 +1367,11 @@
         setStatus('Unable to determine target node from selection.', 'error');
         return;
       }
+      const gpuIds = Array.isArray(pendingSelection.gpuIds) ? pendingSelection.gpuIds : [];
+      if (gpuIds.length === 0) {
+        setStatus('Unable to determine GPU selection from grid.', 'error');
+        return;
+      }
 
       const startUtc = new Date(pendingSelection.startIso);
       const endUtc = new Date(startUtc);
@@ -1289,7 +1389,7 @@
         start: startUtc.toISOString(),
         end: endUtc.toISOString(),
         priority,
-        gpu_ids: [pendingSelection.gpuId],
+        gpu_ids: gpuIds,
       };
 
       try {
