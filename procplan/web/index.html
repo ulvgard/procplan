@@ -804,8 +804,7 @@
       }
       const offset = targetHeader.offsetLeft - firstDataHeader.offsetLeft;
       const containerWidth = container.clientWidth;
-      const targetCenter = offset + (targetHeader.offsetWidth / 2);
-      const scrollLeft = Math.max(targetCenter - containerWidth / 2, 0);
+      const scrollLeft = Math.max(offset, 0);
       container.scrollLeft = scrollLeft;
     }
 
