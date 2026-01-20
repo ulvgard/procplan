@@ -383,20 +383,30 @@
               <label for="user-label">Initials / Alias</label>
               <input id="user-label" name="userLabel" required maxlength="12" placeholder="ABC" autocomplete="nickname">
             </div>
-            <div>
-              <label for="priority">Priority</label>
-              <select id="priority" name="priority">
-                <option value="high">High – critical</option>
-                <option value="medium" selected>Medium – important</option>
-                <option value="low">Low – best effort</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <p>Select free day cells in the grid (drag horizontally or vertically) to choose GPU(s) and duration.</p>
-          </div>
-          <div style="margin-top: 1rem;">
-            <button type="submit">Book Slot</button>
+        <div>
+          <label for="priority">Priority</label>
+          <select id="priority" name="priority">
+            <option value="high">High – critical</option>
+            <option value="medium" selected>Medium – important</option>
+            <option value="low">Low – best effort</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div>
+          <label for="availability-start">Availability start</label>
+          <input type="date" id="availability-start" name="availabilityStart" autocomplete="off">
+        </div>
+        <div>
+          <label for="availability-end">Availability end</label>
+          <input type="date" id="availability-end" name="availabilityEnd" autocomplete="off">
+        </div>
+      </div>
+      <div>
+        <p>Select free day cells in the grid (drag horizontally or vertically) to choose GPU(s) and duration.</p>
+      </div>
+      <div style="margin-top: 1rem;">
+        <button type="submit">Book Slot</button>
           </div>
         </form>
       </div>
@@ -425,6 +435,8 @@
     const statusPanel = document.getElementById('status-panel');
     const statusMessage = document.getElementById('status-message');
     const bookingForm = document.getElementById('booking-form');
+    const availabilityStartInput = document.getElementById('availability-start');
+    const availabilityEndInput = document.getElementById('availability-end');
     const userLabelInput = document.getElementById('user-label');
     const managePanel = document.getElementById('manage-booking-panel');
     const manageSummary = document.getElementById('manage-booking-summary');
@@ -454,6 +466,24 @@
     let pendingSelection = null;
 
     let statusFadeTimer = null;
+
+    function clearAvailabilityFields() {
+      if (availabilityStartInput) {
+        availabilityStartInput.value = '';
+      }
+      if (availabilityEndInput) {
+        availabilityEndInput.value = '';
+      }
+    }
+
+    function setAvailabilityFields(startIso, endIso) {
+      if (availabilityStartInput) {
+        availabilityStartInput.value = (startIso || '').substring(0, 10);
+      }
+      if (availabilityEndInput) {
+        availabilityEndInput.value = (endIso || '').substring(0, 10);
+      }
+    }
 
     function setUserLabelCookie(value) {
       const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
@@ -566,6 +596,7 @@
         endCol: null,
       };
       pendingSelection = null;
+      clearAvailabilityFields();
     }
 
     function isInPast(dayKey) {
@@ -748,6 +779,9 @@
       const slotCount = endIdx - startIdx + 1;
       const startIso = currentGridDays[startIdx].start;
       const durationHours = slotCount * 24;
+      const endUtc = new Date(startIso);
+      endUtc.setUTCDate(endUtc.getUTCDate() + slotCount - 1);
+      const endIso = endUtc.toISOString();
       const gpuIds = rows
         .slice(startRow, endRow + 1)
         .map((row) => row.dataset.gpuId || '')
@@ -773,10 +807,55 @@
         endIdx,
         startRow,
         endRow,
+        endIso,
       };
+      setAvailabilityFields(startIso, endIso);
       const dayLabel = slotCount === 1 ? 'day' : 'days';
       const gpuLabel = uniqueGpuIds.length === 1 ? uniqueGpuIds[0] : `${uniqueGpuIds.length} GPUs`;
       setStatus(`Prepared booking for ${slotCount} ${dayLabel} on ${gpuLabel}.`, 'info');
+    }
+
+    function applySelectionFromAvailabilityFields() {
+      if (!availabilityStartInput || !availabilityEndInput) {
+        return;
+      }
+      const startKey = availabilityStartInput.value;
+      const endKey = availabilityEndInput.value;
+      if (!startKey || !endKey) {
+        return;
+      }
+      if (!selectionState.table) {
+        setStatus('Select free cells in the grid before adjusting availability dates.', 'error');
+        return;
+      }
+      const selectionStartRow = selectionState.startRow ?? selectionState.baseRow;
+      const selectionEndRow = selectionState.endRow ?? selectionState.baseRow;
+      if (selectionStartRow === null || selectionEndRow === null) {
+        setStatus('Select GPU rows in the grid before adjusting dates.', 'error');
+        return;
+      }
+      const startIdx = currentGridDays.findIndex((day) => day.key === startKey);
+      const endIdx = currentGridDays.findIndex((day) => day.key === endKey);
+      if (startIdx === -1 || endIdx === -1) {
+        setStatus('Dates must be within the loaded availability grid. Update the Day filter and refresh if needed.', 'error');
+        return;
+      }
+      const firstIdx = Math.min(startIdx, endIdx);
+      const lastIdx = Math.max(startIdx, endIdx);
+      const success = applySelection(
+        selectionState.table,
+        selectionStartRow,
+        selectionEndRow,
+        firstIdx,
+        lastIdx
+      );
+      if (!success) {
+        setStatus('Cannot update the selection to that range. Some days may be booked or in the past.', 'error');
+        return;
+      }
+      selectionState.baseCol = firstIdx;
+      selectionState.baseRow = selectionStartRow;
+      updateFormFromSelection();
     }
 
     function scrollToCurrentDay(days) {
@@ -1345,6 +1424,12 @@
         event.preventDefault();
         hideManagePanel();
       });
+    }
+    if (availabilityStartInput) {
+      availabilityStartInput.addEventListener('change', applySelectionFromAvailabilityFields);
+    }
+    if (availabilityEndInput) {
+      availabilityEndInput.addEventListener('change', applySelectionFromAvailabilityFields);
     }
 
     bookingForm.addEventListener('submit', async (event) => {
