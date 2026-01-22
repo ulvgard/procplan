@@ -124,6 +124,80 @@
       width: 100%;
       box-sizing: border-box;
     }
+    details.dropdown {
+      position: relative;
+    }
+    details.dropdown > summary {
+      list-style: none;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 0.5rem;
+      background: #fff;
+      cursor: pointer;
+      user-select: none;
+    }
+    details.dropdown > summary::-webkit-details-marker {
+      display: none;
+    }
+    details.dropdown[open] > summary {
+      outline: 2px solid rgba(37, 99, 235, 0.35);
+      outline-offset: 2px;
+    }
+    .dropdown-panel {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      z-index: 30;
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+      padding: 0.75rem;
+      max-height: 320px;
+      overflow: auto;
+    }
+    .node-availability-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .node-availability-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.35rem 0.4rem;
+      border-radius: 6px;
+    }
+    .node-availability-item:hover {
+      background: #f1f5f9;
+    }
+    .node-availability-visible {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0;
+      font-weight: 600;
+      color: #1f2937;
+    }
+    .node-availability-visible input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+    .node-availability-fold {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.85rem;
+      color: #475569;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .node-availability-fold input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
     button {
       background: #2a9d8f;
       color: #fff;
@@ -217,6 +291,43 @@
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
+    }
+    .availability-node[data-collapsed="true"] tbody {
+      display: none;
+    }
+    .availability-node[data-collapsed="true"] .availability-table-title {
+      margin-bottom: 0;
+      opacity: 0.95;
+    }
+    .availability-node-toggle {
+      width: auto;
+      background: transparent;
+      border: none;
+      padding: 0.2rem;
+      margin: -0.2rem 0.3rem -0.2rem -0.2rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font: inherit;
+      color: inherit;
+      gap: 0.5rem;
+    }
+    .availability-node-toggle:hover {
+      background: rgba(148, 163, 184, 0.2);
+      border-radius: 4px;
+    }
+    .availability-node-caret {
+      width: 0;
+      height: 0;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-left: 6px solid #475569;
+      transform: rotate(90deg);
+      transition: transform 0.15s ease;
+    }
+    .availability-node[data-collapsed="true"] .availability-node-caret {
+      transform: rotate(0deg);
     }
     .availability-table-wrapper {
       margin: 0;
@@ -354,8 +465,13 @@
       <h2>Availability</h2>
       <div class="form-row">
         <div>
-          <label for="node-select">Node</label>
-          <select id="node-select"></select>
+          <label>Nodes</label>
+          <details id="node-availability-dropdown" class="dropdown">
+            <summary id="node-availability-summary">All nodes</summary>
+            <div class="dropdown-panel">
+              <div id="node-availability-list" class="node-availability-list"></div>
+            </div>
+          </details>
         </div>
         <div>
           <label for="date-input">Day</label>
@@ -428,7 +544,9 @@
   </main>
 
   <script>
-    const nodeSelect = document.getElementById('node-select');
+    const nodeAvailabilityDropdown = document.getElementById('node-availability-dropdown');
+    const nodeAvailabilitySummary = document.getElementById('node-availability-summary');
+    const nodeAvailabilityList = document.getElementById('node-availability-list');
     const dateInput = document.getElementById('date-input');
     const refreshButton = document.getElementById('refresh-button');
     const availabilityContainer = document.getElementById('availability-container');
@@ -449,6 +567,8 @@
     };
     const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const USER_LABEL_COOKIE = 'procplan_user_label';
+    const COLLAPSED_NODES_STORAGE_KEY = 'procplan_collapsed_nodes_v1';
+    const VISIBLE_NODES_STORAGE_KEY = 'procplan_visible_nodes_v1';
 
     let nodesCache = [];
     let currentGridDays = [];
@@ -466,6 +586,158 @@
     let pendingSelection = null;
 
     let statusFadeTimer = null;
+
+    function loadCollapsedNodes() {
+      try {
+        const raw = localStorage.getItem(COLLAPSED_NODES_STORAGE_KEY);
+        if (!raw) {
+          return new Set();
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          return new Set();
+        }
+        return new Set(parsed.filter((id) => typeof id === 'string' && id.length > 0));
+      } catch {
+        return new Set();
+      }
+    }
+
+    function saveCollapsedNodes(collapsed) {
+      try {
+        localStorage.setItem(COLLAPSED_NODES_STORAGE_KEY, JSON.stringify(Array.from(collapsed)));
+      } catch {
+        // ignore
+      }
+    }
+
+    function setNodeCollapsed(nodeId, collapsed) {
+      if (!nodeId) {
+        return;
+      }
+      const collapsedNodes = loadCollapsedNodes();
+      if (collapsed) {
+        collapsedNodes.add(nodeId);
+      } else {
+        collapsedNodes.delete(nodeId);
+      }
+      saveCollapsedNodes(collapsedNodes);
+      const nodeEl = availabilityContainer.querySelector(`.availability-node[data-node-id="${CSS.escape(nodeId)}"]`);
+      if (nodeEl) {
+        nodeEl.dataset.collapsed = collapsed ? 'true' : 'false';
+      }
+      renderNodeAvailabilityDropdown();
+    }
+
+    function loadVisibleNodes() {
+      try {
+        const raw = localStorage.getItem(VISIBLE_NODES_STORAGE_KEY);
+        if (!raw) {
+          return null;
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          return null;
+        }
+        return new Set(parsed.filter((id) => typeof id === 'string' && id.length > 0));
+      } catch {
+        return null;
+      }
+    }
+
+    function saveVisibleNodes(visible) {
+      try {
+        localStorage.setItem(VISIBLE_NODES_STORAGE_KEY, JSON.stringify(Array.from(visible)));
+      } catch {
+        // ignore
+      }
+    }
+
+    function getVisibleNodeIds() {
+      const allIds = nodesCache.map((node) => node?.id).filter((id) => id);
+      const stored = loadVisibleNodes();
+      if (!stored) {
+        return new Set(allIds);
+      }
+      const visible = new Set();
+      allIds.forEach((id) => {
+        if (stored.has(id)) {
+          visible.add(id);
+        }
+      });
+      return visible;
+    }
+
+    function updateNodeAvailabilitySummary(visible, collapsed) {
+      if (!nodeAvailabilitySummary) {
+        return;
+      }
+      const total = nodesCache.length;
+      const visibleCount = visible.size;
+      const collapsedCount = nodesCache.reduce((acc, node) => acc + (node?.id && collapsed.has(node.id) ? 1 : 0), 0);
+      const base = visibleCount === 0
+        ? 'No nodes'
+        : visibleCount === total
+          ? 'All nodes'
+          : `${visibleCount}/${total} nodes`;
+      nodeAvailabilitySummary.textContent = collapsedCount === 0 ? base : `${base} · Folded ${collapsedCount}`;
+    }
+
+    function renderNodeAvailabilityDropdown() {
+      if (!nodeAvailabilityList) {
+        return;
+      }
+      const visible = getVisibleNodeIds();
+      const collapsed = loadCollapsedNodes();
+      updateNodeAvailabilitySummary(visible, collapsed);
+
+      nodeAvailabilityList.innerHTML = '';
+      nodesCache.forEach((node) => {
+        if (!node || !node.id) {
+          return;
+        }
+        const row = document.createElement('div');
+        row.className = 'node-availability-item';
+
+        const mainLabel = document.createElement('label');
+        mainLabel.className = 'node-availability-visible';
+        const showCheckbox = document.createElement('input');
+        showCheckbox.type = 'checkbox';
+        showCheckbox.checked = visible.has(node.id);
+        showCheckbox.addEventListener('change', () => {
+          const nextVisible = getVisibleNodeIds();
+          if (showCheckbox.checked) {
+            nextVisible.add(node.id);
+          } else {
+            nextVisible.delete(node.id);
+          }
+          saveVisibleNodes(nextVisible);
+          renderNodeAvailabilityDropdown();
+          loadAvailability();
+        });
+        const nameWrap = document.createElement('span');
+        nameWrap.textContent = `${node.name} (${node.gpu_count} GPUs)`;
+        mainLabel.appendChild(showCheckbox);
+        mainLabel.appendChild(nameWrap);
+        row.appendChild(mainLabel);
+
+        const foldLabel = document.createElement('label');
+        foldLabel.className = 'node-availability-fold';
+        const foldCheckbox = document.createElement('input');
+        foldCheckbox.type = 'checkbox';
+        foldCheckbox.checked = collapsed.has(node.id);
+        foldCheckbox.addEventListener('change', () => {
+          setNodeCollapsed(node.id, foldCheckbox.checked);
+        });
+        const foldText = document.createElement('span');
+        foldText.textContent = 'Fold';
+        foldLabel.appendChild(foldCheckbox);
+        foldLabel.appendChild(foldText);
+        row.appendChild(foldLabel);
+
+        nodeAvailabilityList.appendChild(row);
+      });
+    }
 
     function clearAvailabilityFields() {
       if (availabilityStartInput) {
@@ -792,9 +1064,6 @@
       }
       const nodeId = rows[startRow]?.dataset.nodeId || '';
 
-      if (nodeSelect && nodeId) {
-        nodeSelect.value = nodeId;
-      }
       if (dateInput) {
         dateInput.value = startIso.substring(0, 10);
       }
@@ -921,20 +1190,9 @@
         }
         const data = await response.json();
         nodesCache = data.nodes || [];
-        nodeSelect.innerHTML = '';
-        const allOption = document.createElement('option');
-        allOption.value = 'all';
-        allOption.textContent = 'All nodes';
-        nodeSelect.appendChild(allOption);
-        for (const node of nodesCache) {
-          const option = document.createElement('option');
-          option.value = node.id;
-          option.textContent = `${node.name} (${node.gpu_count} GPUs)`;
-          nodeSelect.appendChild(option);
-        }
+        renderNodeAvailabilityDropdown();
         ensureDateValue();
         if (nodesCache.length > 0) {
-          nodeSelect.value = 'all';
           await loadAvailability();
         } else {
           setStatus('No nodes are configured. Check the server configuration file.', 'error');
@@ -959,33 +1217,27 @@
       ensureDateValue();
       clearSelection();
       hideManagePanel();
-      const nodeId = nodeSelect.value;
       const { startIso, endIso } = buildIntervalIsoStrings(dateInput.value);
       try {
         let datasets = [];
-        if (!nodeId || nodeId === 'all') {
-          datasets = await Promise.all(
-            nodesCache.map(async (node) => {
-              const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}&granularity=day`);
-              if (!resp.ok) {
-                throw new Error(`Failed to load availability for ${node.name} (${resp.status})`);
-              }
-              const json = await resp.json();
-              return { node, data: json };
-            })
-          );
-        } else {
-          const node = nodesCache.find((n) => n.id === nodeId);
-          if (!node) {
-            throw new Error('Unknown node selected');
-          }
-          const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}&granularity=day`);
-          if (!resp.ok) {
-            throw new Error(`Failed to load availability (${resp.status})`);
-          }
-          const json = await resp.json();
-          datasets = [{ node, data: json }];
+        const visible = getVisibleNodeIds();
+        if (visible.size === 0) {
+          availabilityContainer.innerHTML = '';
+          currentGridDays = [];
+          setStatus('No nodes selected. Use Nodes to show one or more nodes.', 'info');
+          return;
         }
+        const nodesToLoad = nodesCache.filter((node) => node && node.id && visible.has(node.id));
+        datasets = await Promise.all(
+          nodesToLoad.map(async (node) => {
+            const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}&granularity=day`);
+            if (!resp.ok) {
+              throw new Error(`Failed to load availability for ${node.name} (${resp.status})`);
+            }
+            const json = await resp.json();
+            return { node, data: json };
+          })
+        );
         renderAvailability(datasets);
         clearStatus();
       } catch (err) {
@@ -1045,13 +1297,36 @@
       const todayKey = new Date().toISOString().substring(0, 10);
       const priorityRank = { low: 0, medium: 1, high: 2 };
 
+      const collapsedNodes = loadCollapsedNodes();
+
       validData.forEach(({ node, data }) => {
         const wrapper = document.createElement('div');
         wrapper.className = 'availability-table-wrapper';
+        wrapper.classList.add('availability-node');
+        wrapper.dataset.nodeId = node.id;
+        wrapper.dataset.collapsed = collapsedNodes.has(node.id) ? 'true' : 'false';
 
         const title = document.createElement('div');
         title.className = 'availability-table-title';
-        title.textContent = `${node.name} (${node.id})`;
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'availability-node-toggle';
+        toggle.title = 'Collapse/expand node';
+        toggle.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const next = wrapper.dataset.collapsed !== 'true';
+          wrapper.dataset.collapsed = next ? 'true' : 'false';
+          setNodeCollapsed(node.id, next);
+        });
+        const caret = document.createElement('span');
+        caret.className = 'availability-node-caret';
+        caret.setAttribute('aria-hidden', 'true');
+        toggle.appendChild(caret);
+        const titleText = document.createElement('span');
+        titleText.textContent = `${node.name} (${node.id})`;
+        toggle.appendChild(titleText);
+        title.appendChild(toggle);
         wrapper.appendChild(title);
 
         const table = document.createElement('table');
@@ -1059,6 +1334,7 @@
 
         const thead = document.createElement('thead');
         const headRow = document.createElement('tr');
+        headRow.className = 'availability-days-row';
         const headFirst = document.createElement('th');
         headFirst.textContent = 'GPU (kind)';
         headRow.appendChild(headFirst);
@@ -1446,7 +1722,7 @@
       }
 
       const priority = document.getElementById('priority').value;
-      const nodeId = pendingSelection.nodeId || nodeSelect.value;
+      const nodeId = pendingSelection.nodeId;
       if (!nodeId || nodeId === 'all') {
         setStatus('Unable to determine target node from selection.', 'error');
         return;
@@ -1500,9 +1776,6 @@
         }
         pendingSelection = null;
         clearSelection();
-        if (Array.from(nodeSelect.options).some((opt) => opt.value === 'all')) {
-          nodeSelect.value = 'all';
-        }
         await loadAvailability();
       } catch (err) {
         setStatus(err.message, 'error');
@@ -1514,8 +1787,26 @@
       loadAvailability();
     });
 
-    nodeSelect.addEventListener('change', loadAvailability);
     dateInput.addEventListener('change', loadAvailability);
+
+    document.addEventListener('click', (event) => {
+      if (!nodeAvailabilityDropdown || !nodeAvailabilityDropdown.open) {
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Node && nodeAvailabilityDropdown.contains(target)) {
+        return;
+      }
+      nodeAvailabilityDropdown.open = false;
+    });
+
+    if (nodeAvailabilityDropdown) {
+      nodeAvailabilityDropdown.addEventListener('toggle', () => {
+        if (nodeAvailabilityDropdown.open) {
+          renderNodeAvailabilityDropdown();
+        }
+      });
+    }
 
     loadNodes();
   </script>
