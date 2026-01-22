@@ -18,6 +18,22 @@
       color: #fff;
       padding: 0.6rem 2rem;
     }
+    header .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    header .header-text h1 {
+      margin: 0;
+      font-size: 1.6rem;
+      letter-spacing: 0.02em;
+    }
+    header .header-text p {
+      margin: 0.2rem 0 0;
+      font-size: 0.95rem;
+      opacity: 0.85;
+    }
     header h1 {
       margin: 0;
       font-size: 1.6rem;
@@ -28,11 +44,26 @@
       font-size: 0.95rem;
       opacity: 0.85;
     }
+    header #help-button {
+      width: auto;
+      padding: 0.4rem 0.75rem;
+      font-size: 0.9rem;
+      white-space: nowrap;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      color: #fff;
+    }
+    header #help-button:hover {
+      background: rgba(255, 255, 255, 0.22);
+    }
     main {
-      padding: 1.25rem 4vw;
+      padding: 0 4vw 1.25rem;
       margin: 0;
       width: 100%;
       box-sizing: border-box;
+    }
+    main > section:first-child {
+      margin-top: 0;
     }
     section {
       background: #fff;
@@ -41,17 +72,37 @@
       margin-bottom: 1.5rem;
       box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
     }
+    #controls {
+      padding: 1rem;
+    }
+    #controls h2 {
+      margin-bottom: 0.75rem;
+    }
+    #controls .form-row {
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    #controls label {
+      margin-bottom: 0.2rem;
+      font-size: 0.9rem;
+    }
+    #controls input,
+    #controls select,
+    #controls button {
+      font-size: 0.95rem;
+      padding: 0.45rem;
+    }
     #availability-section {
       overflow-x: auto;
     }
     #booking-panel {
-      margin-top: 1.5rem;
-      padding-top: 1.5rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
       border-top: 1px solid #e2e8f0;
     }
     #manage-booking-panel {
-      margin-top: 1.5rem;
-      padding-top: 1.5rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
       border-top: 1px solid #e2e8f0;
     }
     #manage-booking-summary {
@@ -207,6 +258,14 @@
     }
     button:hover {
       background: #23867d;
+    }
+    button.button-secondary {
+      background: #e2e8f0;
+      color: #0f172a;
+      border: 1px solid #cbd5e1;
+    }
+    button.button-secondary:hover {
+      background: #cbd5e1;
     }
     .form-row {
       display: grid;
@@ -383,6 +442,65 @@
       font-size: 0.85rem;
       color: #475569;
     }
+    #help-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+      z-index: 50;
+    }
+    #help-modal[aria-hidden="false"] {
+      display: flex;
+    }
+    .modal-card {
+      width: min(760px, 95vw);
+      max-height: min(80vh, 720px);
+      overflow: auto;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+      border: 1px solid rgba(148, 163, 184, 0.55);
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid #e2e8f0;
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 1;
+    }
+    .modal-header h3 {
+      margin: 0;
+      font-size: 1.1rem;
+      color: #0f172a;
+    }
+    .modal-body {
+      padding: 1rem 1.25rem 1.25rem;
+      color: #0f172a;
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+    .modal-body h4 {
+      margin: 1rem 0 0.35rem;
+      font-size: 1rem;
+      color: #0f172a;
+    }
+    .modal-body ul {
+      margin: 0.25rem 0 0.75rem 1.25rem;
+      padding: 0;
+    }
+    .modal-close {
+      width: auto;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.9rem;
+    }
     .legend-chip {
       display: inline-flex;
       align-items: center;
@@ -457,8 +575,13 @@
 </head>
 <body>
   <header>
-    <h1>ProcPlan Scheduler</h1>
-    <p>Plan GPU usage on shared nodes.</p>
+    <div class="header-row">
+      <div class="header-text">
+        <h1>ProcPlan Scheduler</h1>
+        <p>Plan GPU usage on shared nodes.</p>
+      </div>
+      <button type="button" id="help-button">Help</button>
+    </div>
   </header>
   <main>
     <section id="controls">
@@ -481,10 +604,6 @@
           <label>&nbsp;</label>
           <button id="refresh-button">Refresh Availability</button>
         </div>
-      </div>
-      <div class="availability-legend">
-        <span><strong>Rows</strong> list GPUs on the selected node.</span>
-        <span><strong>Columns</strong> represent each day of the selected year.</span>
       </div>
       <div class="priority-legend">
         <span class="legend-chip"><span class="legend-high"></span>High priority</span>
@@ -543,7 +662,52 @@
     </section>
   </main>
 
+  <div id="help-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+    <div class="modal-card" role="document">
+      <div class="modal-header">
+        <h3 id="help-modal-title">How to use ProcPlan</h3>
+        <button type="button" id="help-close" class="button-secondary modal-close">Close</button>
+      </div>
+      <div class="modal-body">
+        <h4>Book a single GPU</h4>
+        <ul>
+          <li>Enter your initials/alias and pick a priority.</li>
+          <li>In the grid, click and drag across <strong>Free</strong> cells on one GPU row to select a date range.</li>
+          <li>Confirm the range in <strong>Availability start/end</strong>, then click <strong>Book Slot</strong>.</li>
+        </ul>
+
+        <h4>Book multiple GPUs</h4>
+        <ul>
+          <li>Drag across multiple GPU rows (vertical) and multiple days (horizontal) to select a rectangle of free cells.</li>
+          <li>The booking will apply to all selected GPU rows for the selected date range.</li>
+        </ul>
+
+        <h4>Inspect or cancel a booking</h4>
+        <ul>
+          <li>Click a non-free (booked/partial) cell to open <strong>Manage Bookings</strong>.</li>
+          <li>Use <strong>Cancel booking</strong> to remove a reservation.</li>
+        </ul>
+
+        <h4>Node controls</h4>
+        <ul>
+          <li>Use the <strong>Nodes</strong> dropdown to show/hide nodes and fold/unfold their tables.</li>
+          <li>Folded nodes keep the header visible while hiding GPU rows.</li>
+        </ul>
+
+        <h4>Other controls</h4>
+        <ul>
+          <li><strong>Day</strong> chooses the year to load (any date in that year works).</li>
+          <li><strong>Refresh Availability</strong> reloads from the server.</li>
+          <li>Press <strong>Esc</strong> to close this help and dismiss open dropdowns.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <script>
+    const helpButton = document.getElementById('help-button');
+    const helpModal = document.getElementById('help-modal');
+    const helpClose = document.getElementById('help-close');
     const nodeAvailabilityDropdown = document.getElementById('node-availability-dropdown');
     const nodeAvailabilitySummary = document.getElementById('node-availability-summary');
     const nodeAvailabilityList = document.getElementById('node-availability-list');
@@ -586,6 +750,26 @@
     let pendingSelection = null;
 
     let statusFadeTimer = null;
+
+    function openHelpModal() {
+      if (!helpModal) {
+        return;
+      }
+      helpModal.setAttribute('aria-hidden', 'false');
+      if (helpClose) {
+        helpClose.focus();
+      }
+    }
+
+    function closeHelpModal() {
+      if (!helpModal) {
+        return;
+      }
+      helpModal.setAttribute('aria-hidden', 'true');
+      if (helpButton) {
+        helpButton.focus();
+      }
+    }
 
     function loadCollapsedNodes() {
       try {
@@ -1798,6 +1982,36 @@
         return;
       }
       nodeAvailabilityDropdown.open = false;
+    });
+    if (helpButton) {
+      helpButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        openHelpModal();
+      });
+    }
+    if (helpClose) {
+      helpClose.addEventListener('click', (event) => {
+        event.preventDefault();
+        closeHelpModal();
+      });
+    }
+    if (helpModal) {
+      helpModal.addEventListener('click', (event) => {
+        if (event.target === helpModal) {
+          closeHelpModal();
+        }
+      });
+    }
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      if (helpModal && helpModal.getAttribute('aria-hidden') === 'false') {
+        closeHelpModal();
+      }
+      if (nodeAvailabilityDropdown && nodeAvailabilityDropdown.open) {
+        nodeAvailabilityDropdown.open = false;
+      }
     });
 
     if (nodeAvailabilityDropdown) {
