@@ -76,6 +76,45 @@
     #controls {
       padding: 1rem;
     }
+    .availability-loading {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+    .progress-track {
+      flex: 1;
+      height: 8px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #0f766e, #22c55e, #0f766e);
+      transition: width 0.2s ease;
+    }
+    .progress-bar.indeterminate {
+      width: 40%;
+      animation: progress-indeterminate 1.2s ease-in-out infinite;
+      will-change: transform;
+    }
+    .progress-label {
+      font-size: 0.85rem;
+      color: #475569;
+      white-space: nowrap;
+    }
+    @keyframes progress-indeterminate {
+      0% { transform: translateX(-120%); }
+      50% { transform: translateX(20%); }
+      100% { transform: translateX(120%); }
+    }
     #controls h2 {
       margin-bottom: 0.75rem;
     }
@@ -610,6 +649,12 @@
           <button id="refresh-button">Refresh Availability</button>
         </div>
       </div>
+      <div id="availability-loading" class="availability-loading" hidden>
+        <div class="progress-track">
+          <div id="availability-progress-bar" class="progress-bar"></div>
+        </div>
+        <div id="availability-progress-label" class="progress-label">Loading availability…</div>
+      </div>
       <div class="priority-legend">
         <span class="legend-chip"><span class="legend-high"></span>High priority</span>
         <span class="legend-chip"><span class="legend-medium"></span>Medium priority</span>
@@ -719,6 +764,9 @@
     const dateInput = document.getElementById('date-input');
     const refreshButton = document.getElementById('refresh-button');
     const availabilityContainer = document.getElementById('availability-container');
+    const availabilityLoading = document.getElementById('availability-loading');
+    const availabilityProgressBar = document.getElementById('availability-progress-bar');
+    const availabilityProgressLabel = document.getElementById('availability-progress-label');
     const statusPanel = document.getElementById('status-panel');
     const statusMessage = document.getElementById('status-message');
     const bookingForm = document.getElementById('booking-form');
@@ -753,6 +801,7 @@
     };
     let selectedCellElements = [];
     let pendingSelection = null;
+    let availabilityLoadToken = 0;
 
     let statusFadeTimer = null;
 
@@ -996,6 +1045,50 @@
       if (statusFadeTimer) {
         clearTimeout(statusFadeTimer);
         statusFadeTimer = null;
+      }
+    }
+
+    function showAvailabilityLoading(options = {}) {
+      if (!availabilityLoading || !availabilityProgressBar) {
+        return;
+      }
+      const mode = options.mode || 'indeterminate';
+      const current = options.current || 0;
+      const total = options.total || 0;
+      const label = options.label;
+
+      availabilityLoading.hidden = false;
+      if (mode === 'determinate') {
+        availabilityProgressBar.classList.remove('indeterminate');
+        const safeTotal = Math.max(total, 1);
+        const percent = Math.min(100, Math.round((current / safeTotal) * 100));
+        availabilityProgressBar.style.width = `${percent}%`;
+        if (availabilityProgressLabel) {
+          availabilityProgressLabel.textContent =
+            label || `Loading availability (${current}/${total})...`;
+        }
+      } else {
+        availabilityProgressBar.classList.add('indeterminate');
+        availabilityProgressBar.style.width = '40%';
+        if (availabilityProgressLabel) {
+          availabilityProgressLabel.textContent = label || 'Loading availability...';
+        }
+      }
+    }
+
+    function updateAvailabilityProgress(current, total) {
+      showAvailabilityLoading({ mode: 'determinate', current, total });
+    }
+
+    function hideAvailabilityLoading() {
+      if (!availabilityLoading || !availabilityProgressBar) {
+        return;
+      }
+      availabilityLoading.hidden = true;
+      availabilityProgressBar.classList.remove('indeterminate');
+      availabilityProgressBar.style.width = '0%';
+      if (availabilityProgressLabel) {
+        availabilityProgressLabel.textContent = '';
       }
     }
 
@@ -1402,10 +1495,70 @@
       };
     }
 
+    async function fetchAvailabilityBulk(nodesToLoad, startIso, endIso) {
+      const nodeIds = nodesToLoad.map((node) => node.id);
+      const response = await fetch('/api/availability_bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          node_ids: nodeIds,
+          start: startIso,
+          end: endIso,
+          granularity: 'day'
+        })
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to load availability (${response.status})`);
+      }
+      const data = await response.json();
+      const availabilityList = Array.isArray(data.availability) ? data.availability : [];
+      const availabilityById = new Map();
+      availabilityList.forEach((entry) => {
+        const nodeId = entry?.node?.id;
+        if (nodeId) {
+          availabilityById.set(nodeId, entry);
+        }
+      });
+      const datasets = nodesToLoad
+        .map((node) => {
+          const availability = availabilityById.get(node.id);
+          return availability ? { node, data: availability } : null;
+        })
+        .filter(Boolean);
+      if (datasets.length === 0) {
+        throw new Error('Availability response was empty.');
+      }
+      return datasets;
+    }
+
+    async function fetchAvailabilityPerNode(nodesToLoad, startIso, endIso, onProgress) {
+      let completed = 0;
+      const total = nodesToLoad.length;
+      if (onProgress) {
+        onProgress(completed, total);
+      }
+      const datasets = await Promise.all(
+        nodesToLoad.map(async (node) => {
+          const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}&granularity=day`);
+          if (!resp.ok) {
+            throw new Error(`Failed to load availability for ${node.name} (${resp.status})`);
+          }
+          const json = await resp.json();
+          completed += 1;
+          if (onProgress) {
+            onProgress(completed, total);
+          }
+          return { node, data: json };
+        })
+      );
+      return datasets;
+    }
+
     async function loadAvailability() {
       ensureDateValue();
       clearSelection();
       hideManagePanel();
+      const loadToken = ++availabilityLoadToken;
       const { startIso, endIso } = buildIntervalIsoStrings(dateInput.value);
       try {
         let datasets = [];
@@ -1417,22 +1570,43 @@
           return;
         }
         const nodesToLoad = nodesCache.filter((node) => node && node.id && visible.has(node.id));
-        datasets = await Promise.all(
-          nodesToLoad.map(async (node) => {
-            const resp = await fetch(`/api/availability?node_id=${encodeURIComponent(node.id)}&start=${encodeURIComponent(startIso)}&end=${encodeURIComponent(endIso)}&granularity=day`);
-            if (!resp.ok) {
-              throw new Error(`Failed to load availability for ${node.name} (${resp.status})`);
+        showAvailabilityLoading({
+          mode: 'indeterminate',
+          label: `Loading availability for ${nodesToLoad.length} node(s)...`
+        });
+
+        try {
+          datasets = await fetchAvailabilityBulk(nodesToLoad, startIso, endIso);
+        } catch (bulkError) {
+          showAvailabilityLoading({ mode: 'determinate', current: 0, total: nodesToLoad.length });
+          datasets = await fetchAvailabilityPerNode(
+            nodesToLoad,
+            startIso,
+            endIso,
+            (current, total) => {
+              if (loadToken === availabilityLoadToken) {
+                updateAvailabilityProgress(current, total);
+              }
             }
-            const json = await resp.json();
-            return { node, data: json };
-          })
-        );
+          );
+        }
+
+        if (loadToken !== availabilityLoadToken) {
+          return;
+        }
         renderAvailability(datasets);
         clearStatus();
       } catch (err) {
+        if (loadToken !== availabilityLoadToken) {
+          return;
+        }
         availabilityContainer.innerHTML = '';
         clearSelection();
         setStatus(err.message, 'error');
+      } finally {
+        if (loadToken === availabilityLoadToken) {
+          hideAvailabilityLoading();
+        }
       }
     }
 
@@ -1440,6 +1614,7 @@
       clearSelection();
       hideManagePanel();
       availabilityContainer.innerHTML = '';
+      const fragment = document.createDocumentFragment();
 
       const validData = datasets.filter((entry) => entry && entry.data && entry.data.grid);
       if (validData.length === 0) {
@@ -1724,9 +1899,10 @@
 
         table.appendChild(tbody);
         wrapper.appendChild(table);
-        availabilityContainer.appendChild(wrapper);
+        fragment.appendChild(wrapper);
       });
 
+      availabilityContainer.appendChild(fragment);
       scrollToCurrentDay(currentGridDays);
     }
 

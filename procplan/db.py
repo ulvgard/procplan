@@ -67,6 +67,11 @@ class Database:
                     gpu_id TEXT NOT NULL REFERENCES gpus(id),
                     PRIMARY KEY (booking_id, gpu_id)
                 );
+                CREATE INDEX IF NOT EXISTS idx_gpus_node_id ON gpus(node_id);
+                CREATE INDEX IF NOT EXISTS idx_bookings_node_status_time
+                    ON bookings(node_id, status, start_utc, end_utc);
+                CREATE INDEX IF NOT EXISTS idx_booking_allocations_gpu_id
+                    ON booking_allocations(gpu_id);
                 """
             )
             columns = conn.execute("PRAGMA table_info(bookings)").fetchall()

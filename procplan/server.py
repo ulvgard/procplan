@@ -98,6 +98,8 @@ class ProcPlanHTTPRequestHandler(BaseHTTPRequestHandler):
             self._handle_mark_done()
         elif parsed.path == "/api/reload_config":
             self._handle_reload_config()
+        elif parsed.path == "/api/availability_bulk":
+            self._handle_availability_bulk()
         else:
             self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
@@ -169,6 +171,66 @@ class ProcPlanHTTPRequestHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
             return
         self._send_json(availability)
+
+    def _handle_availability_bulk(self) -> None:
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        node_ids = payload.get("node_ids")
+        if node_ids is not None:
+            if not isinstance(node_ids, list) or not all(isinstance(item, (str, int)) for item in node_ids):
+                self._send_error(HTTPStatus.BAD_REQUEST, "'node_ids' must be an array of ids when provided")
+                return
+            node_ids = [str(item) for item in node_ids]
+
+        start_raw = payload.get("start")
+        end_raw = payload.get("end")
+        try:
+            if start_raw and end_raw:
+                start = parse_iso_timestamp(start_raw)
+                end = parse_iso_timestamp(end_raw)
+            else:
+                start, end = self.service.default_availability_window()
+        except Exception as exc:
+            self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+
+        granularity = str(payload.get("granularity") or "hour").lower()
+        if granularity not in {"hour", "day"}:
+            self._send_error(HTTPStatus.BAD_REQUEST, "Granularity must be either 'hour' or 'day'")
+            return
+
+        try:
+            nodes = self.service.list_nodes()
+            if node_ids is not None:
+                node_map = {node["id"]: node for node in nodes}
+                nodes = [node_map[node_id] for node_id in node_ids if node_id in node_map]
+        except Exception as exc:
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+            return
+
+        try:
+            availability_payloads = [
+                self.service.compute_availability(
+                    node_id=node["id"],
+                    start=start,
+                    end=end,
+                    granularity=granularity,
+                )
+                for node in nodes
+            ]
+        except ValueError as exc:
+            self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
+            return
+        except Exception as exc:  # pragma: no cover - defensive
+            LOGGER.exception("Failed to compute availability for bulk request")
+            self._send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+            return
+
+        self._send_json({"availability": availability_payloads})
 
     def _handle_create_booking(self) -> None:
         try:

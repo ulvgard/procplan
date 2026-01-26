@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import threading
+import time
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -20,6 +22,9 @@ class ProcPlanService:
         self.config_path = Path(config_path)
         self.database = Database(database_path)
         self._lock = threading.RLock()
+        self._availability_cache: OrderedDict[tuple[str, str, str, str], tuple[float, Dict[str, Any]]] = OrderedDict()
+        self._availability_cache_ttl = 30.0
+        self._availability_cache_max = 64
         self._config = self._load_config()
         self.database.sync_from_config(self._config)
 
@@ -32,6 +37,7 @@ class ProcPlanService:
         with self._lock:
             self._config = self._load_config()
             self.database.sync_from_config(self._config)
+            self._availability_cache.clear()
 
     @property
     def config(self) -> Config:
@@ -39,7 +45,7 @@ class ProcPlanService:
             return self._config
 
     def list_nodes(self) -> List[Dict[str, Any]]:
-        nodes = self.database.list_nodes()
+        nodes = self.config.nodes
         return [self._node_to_dict(node) for node in nodes]
 
     def _node_to_dict(self, node: Node) -> Dict[str, Any]:
@@ -54,10 +60,34 @@ class ProcPlanService:
         }
 
     def get_node(self, node_id: str) -> Node:
-        node = self.database.fetch_node(node_id)
+        node = self.config.nodes_by_id.get(node_id)
         if not node:
             raise ValueError(f"Unknown node id '{node_id}'")
         return node
+
+    def _cache_key(self, node_id: str, start: datetime, end: datetime, granularity: str) -> tuple[str, str, str, str]:
+        return (node_id, start.isoformat(), end.isoformat(), granularity)
+
+    def _get_cached_availability(self, key: tuple[str, str, str, str], now: float) -> Dict[str, Any] | None:
+        cached = self._availability_cache.get(key)
+        if not cached:
+            return None
+        created_at, payload = cached
+        if now - created_at > self._availability_cache_ttl:
+            self._availability_cache.pop(key, None)
+            return None
+        self._availability_cache.move_to_end(key)
+        return payload
+
+    def _store_cached_availability(self, key: tuple[str, str, str, str], now: float, payload: Dict[str, Any]) -> None:
+        self._availability_cache[key] = (now, payload)
+        self._availability_cache.move_to_end(key)
+        while len(self._availability_cache) > self._availability_cache_max:
+            self._availability_cache.popitem(last=False)
+
+    def _invalidate_cache(self) -> None:
+        with self._lock:
+            self._availability_cache.clear()
 
     def compute_availability(
         self,
@@ -67,7 +97,6 @@ class ProcPlanService:
         end: datetime,
         granularity: str = "hour",
     ) -> Dict[str, Any]:
-        node = self.get_node(node_id)
         ensure_hour_alignment(start)
         ensure_hour_alignment(end)
         if end <= start:
@@ -76,6 +105,16 @@ class ProcPlanService:
         granularity_key = granularity.lower()
         if granularity_key not in {"hour", "day"}:
             raise ValueError("Granularity must be either 'hour' or 'day'")
+
+        cache_key = self._cache_key(node_id, start, end, granularity_key)
+        now = time.monotonic()
+        with self._lock:
+            cached = self._get_cached_availability(cache_key, now)
+            if cached:
+                return cached
+            node = self._config.nodes_by_id.get(node_id)
+        if not node:
+            raise ValueError(f"Unknown node id '{node_id}'")
 
         booking_rows = self.database.list_bookings_for_window(
             node_id=node_id,
@@ -86,8 +125,13 @@ class ProcPlanService:
         parsed_bookings = self._prepare_bookings(booking_rows)
 
         if granularity_key == "day":
-            return self._build_day_grid(node, start, end, parsed_bookings)
-        return self._build_hour_grid(node, start, end, parsed_bookings)
+            availability = self._build_day_grid(node, start, end, parsed_bookings)
+        else:
+            availability = self._build_hour_grid(node, start, end, parsed_bookings)
+
+        with self._lock:
+            self._store_cached_availability(cache_key, now, availability)
+        return availability
 
     def create_booking(
         self,
@@ -135,6 +179,7 @@ class ProcPlanService:
             user_label=user_label.strip(),
             priority=selected_priority,
         )
+        self._invalidate_cache()
 
         return {
             "booking_id": booking_id,
@@ -147,10 +192,16 @@ class ProcPlanService:
         }
 
     def mark_booking_complete(self, booking_id: int) -> bool:
-        return self.database.mark_booking_done(booking_id=booking_id)
+        success = self.database.mark_booking_done(booking_id=booking_id)
+        if success:
+            self._invalidate_cache()
+        return success
 
     def cancel_booking(self, booking_id: int) -> bool:
-        return self.database.cancel_booking(booking_id=booking_id)
+        success = self.database.cancel_booking(booking_id=booking_id)
+        if success:
+            self._invalidate_cache()
+        return success
 
     def default_availability_window(self) -> Tuple[datetime, datetime]:
         now = datetime.now(tz=UTC)
@@ -273,16 +324,16 @@ class ProcPlanService:
         parsed_bookings: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         day_cursor = start
-        day_entries: List[Dict[str, Any]] = []
+        day_keys: List[str] = []
+        day_starts: List[datetime] = []
+        day_ends: List[datetime] = []
+        day_total_hours: List[int] = []
         while day_cursor < end:
             next_day = min(day_cursor + timedelta(days=1), end)
-            day_entries.append(
-                {
-                    "key": day_cursor.date().isoformat(),
-                    "start": day_cursor,
-                    "end": next_day,
-                }
-            )
+            day_keys.append(day_cursor.date().isoformat())
+            day_starts.append(day_cursor)
+            day_ends.append(next_day)
+            day_total_hours.append(int((next_day - day_cursor).total_seconds() // 3600))
             day_cursor = next_day
 
         bookings_by_gpu: Dict[str, List[Dict[str, Any]]] = {gpu.id: [] for gpu in node.gpus}
@@ -293,59 +344,79 @@ class ProcPlanService:
 
         priority_rank = {"low": 0, "medium": 1, "high": 2}
         grid_rows: List[Dict[str, Any]] = []
+        day_count = len(day_keys)
+        seconds_per_day = 24 * 3600
+        total_seconds = int((end - start).total_seconds())
 
         for gpu in node.gpus:
-            gpu_day_slots: List[Dict[str, Any]] = []
-            relevant_bookings = bookings_by_gpu.get(gpu.id, [])
-            for day in day_entries:
-                day_start: datetime = day["start"]
-                day_end: datetime = day["end"]
-                total_hours = int((day_end - day_start).total_seconds() // 3600)
-                booked_hours = 0
-                slot_bookings: List[Dict[str, Any]] = []
-                best_priority = "medium"
-                best_rank = -1
+            booked_hours = [0] * day_count
+            slot_bookings: List[List[Dict[str, Any]]] = [[] for _ in range(day_count)]
+            best_priority: List[str | None] = [None] * day_count
+            best_rank = [-1] * day_count
 
-                for booking in relevant_bookings:
+            relevant_bookings = bookings_by_gpu.get(gpu.id, [])
+            for booking in relevant_bookings:
+                if booking["status"] != "active":
+                    continue
+                overlap_start = max(start, booking["start"])
+                overlap_end = min(end, booking["end"])
+                if overlap_start >= overlap_end:
+                    continue
+                start_offset = int((overlap_start - start).total_seconds())
+                end_offset = int((overlap_end - start).total_seconds())
+                if end_offset <= 0 or start_offset >= total_seconds:
+                    continue
+
+                start_idx = max(0, start_offset // seconds_per_day)
+                end_idx = max(0, (end_offset + seconds_per_day - 1) // seconds_per_day)
+                if start_idx >= day_count:
+                    continue
+                end_idx = min(end_idx, day_count)
+
+                for day_idx in range(start_idx, end_idx):
+                    day_start = day_starts[day_idx]
+                    day_end = day_ends[day_idx]
                     overlap_start = max(day_start, booking["start"])
                     overlap_end = min(day_end, booking["end"])
                     if overlap_start >= overlap_end:
                         continue
-
                     overlap_hours = int((overlap_end - overlap_start).total_seconds() // 3600)
                     if overlap_hours <= 0:
                         continue
 
-                    if booking["status"] == "active":
-                        booked_hours += overlap_hours
-                        summary = dict(booking["public"])
-                        summary["hours"] = overlap_hours
-                        summary["overlap_start"] = overlap_start.isoformat()
-                        summary["overlap_end"] = overlap_end.isoformat()
-                        slot_bookings.append(summary)
+                    booked_hours[day_idx] += overlap_hours
+                    summary = dict(booking["public"])
+                    summary["hours"] = overlap_hours
+                    summary["overlap_start"] = overlap_start.isoformat()
+                    summary["overlap_end"] = overlap_end.isoformat()
+                    slot_bookings[day_idx].append(summary)
 
-                        priority = (summary.get("priority") or "medium").lower()
-                        rank = priority_rank.get(priority, 1)
-                        if rank > best_rank:
-                            best_rank = rank
-                            best_priority = priority
+                    priority = (summary.get("priority") or "medium").lower()
+                    rank = priority_rank.get(priority, 1)
+                    if rank > best_rank[day_idx]:
+                        best_rank[day_idx] = rank
+                        best_priority[day_idx] = priority
 
-                if booked_hours <= 0:
+            gpu_day_slots: List[Dict[str, Any]] = []
+            for idx in range(day_count):
+                total_hours = day_total_hours[idx]
+                booked = booked_hours[idx]
+                if booked <= 0:
                     status = "free"
-                elif booked_hours >= total_hours:
+                elif booked >= total_hours:
                     status = "occupied"
                 else:
                     status = "partial"
 
                 gpu_day_slots.append(
                     {
-                        "start": day_start.isoformat(),
-                        "end": day_end.isoformat(),
+                        "start": day_starts[idx].isoformat(),
+                        "end": day_ends[idx].isoformat(),
                         "status": status,
-                        "booked_hours": booked_hours,
+                        "booked_hours": booked,
                         "total_hours": total_hours,
-                        "priority": best_priority if booked_hours > 0 else None,
-                        "bookings": slot_bookings,
+                        "priority": best_priority[idx] if booked > 0 else None,
+                        "bookings": slot_bookings[idx],
                     }
                 )
 
@@ -358,11 +429,11 @@ class ProcPlanService:
 
         grid_days = [
             {
-                "key": entry["key"],
-                "start": entry["start"].isoformat(),
-                "end": entry["end"].isoformat(),
+                "key": day_keys[idx],
+                "start": day_starts[idx].isoformat(),
+                "end": day_ends[idx].isoformat(),
             }
-            for entry in day_entries
+            for idx in range(day_count)
         ]
 
         return {

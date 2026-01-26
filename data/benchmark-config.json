@@ -1,0 +1,340 @@
+{
+  "nodes": [
+    {
+      "id": "node-01",
+      "name": "Node 01",
+      "gpus": [
+        {
+          "id": "node-01-gpu00",
+          "kind": "A10"
+        },
+        {
+          "id": "node-01-gpu01",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-01-gpu02",
+          "kind": "A10"
+        },
+        {
+          "id": "node-01-gpu03",
+          "kind": "A10"
+        },
+        {
+          "id": "node-01-gpu04",
+          "kind": "H100"
+        },
+        {
+          "id": "node-01-gpu05",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-01-gpu06",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-01-gpu07",
+          "kind": "RTX6000"
+        }
+      ]
+    },
+    {
+      "id": "node-02",
+      "name": "Node 02",
+      "gpus": [
+        {
+          "id": "node-02-gpu00",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-02-gpu01",
+          "kind": "H100"
+        },
+        {
+          "id": "node-02-gpu02",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-02-gpu03",
+          "kind": "A100"
+        },
+        {
+          "id": "node-02-gpu04",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-02-gpu05",
+          "kind": "L40S"
+        }
+      ]
+    },
+    {
+      "id": "node-03",
+      "name": "Node 03",
+      "gpus": [
+        {
+          "id": "node-03-gpu00",
+          "kind": "A10"
+        },
+        {
+          "id": "node-03-gpu01",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-03-gpu02",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-03-gpu03",
+          "kind": "L40S"
+        }
+      ]
+    },
+    {
+      "id": "node-04",
+      "name": "Node 04",
+      "gpus": [
+        {
+          "id": "node-04-gpu00",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-04-gpu01",
+          "kind": "A100"
+        },
+        {
+          "id": "node-04-gpu02",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-04-gpu03",
+          "kind": "A10"
+        },
+        {
+          "id": "node-04-gpu04",
+          "kind": "A100"
+        },
+        {
+          "id": "node-04-gpu05",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-04-gpu06",
+          "kind": "H100"
+        },
+        {
+          "id": "node-04-gpu07",
+          "kind": "H100"
+        },
+        {
+          "id": "node-04-gpu08",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-04-gpu09",
+          "kind": "A10"
+        }
+      ]
+    },
+    {
+      "id": "node-05",
+      "name": "Node 05",
+      "gpus": [
+        {
+          "id": "node-05-gpu00",
+          "kind": "A10"
+        },
+        {
+          "id": "node-05-gpu01",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-05-gpu02",
+          "kind": "H100"
+        },
+        {
+          "id": "node-05-gpu03",
+          "kind": "A10"
+        },
+        {
+          "id": "node-05-gpu04",
+          "kind": "A100"
+        },
+        {
+          "id": "node-05-gpu05",
+          "kind": "A10"
+        },
+        {
+          "id": "node-05-gpu06",
+          "kind": "A10"
+        }
+      ]
+    },
+    {
+      "id": "node-06",
+      "name": "Node 06",
+      "gpus": [
+        {
+          "id": "node-06-gpu00",
+          "kind": "A100"
+        },
+        {
+          "id": "node-06-gpu01",
+          "kind": "A100"
+        },
+        {
+          "id": "node-06-gpu02",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-06-gpu03",
+          "kind": "A10"
+        },
+        {
+          "id": "node-06-gpu04",
+          "kind": "A100"
+        },
+        {
+          "id": "node-06-gpu05",
+          "kind": "A100"
+        },
+        {
+          "id": "node-06-gpu06",
+          "kind": "H100"
+        },
+        {
+          "id": "node-06-gpu07",
+          "kind": "H100"
+        }
+      ]
+    },
+    {
+      "id": "node-07",
+      "name": "Node 07",
+      "gpus": [
+        {
+          "id": "node-07-gpu00",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-07-gpu01",
+          "kind": "H100"
+        },
+        {
+          "id": "node-07-gpu02",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-07-gpu03",
+          "kind": "A10"
+        }
+      ]
+    },
+    {
+      "id": "node-08",
+      "name": "Node 08",
+      "gpus": [
+        {
+          "id": "node-08-gpu00",
+          "kind": "A100"
+        },
+        {
+          "id": "node-08-gpu01",
+          "kind": "A10"
+        },
+        {
+          "id": "node-08-gpu02",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-08-gpu03",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-08-gpu04",
+          "kind": "A10"
+        },
+        {
+          "id": "node-08-gpu05",
+          "kind": "H100"
+        }
+      ]
+    },
+    {
+      "id": "node-09",
+      "name": "Node 09",
+      "gpus": [
+        {
+          "id": "node-09-gpu00",
+          "kind": "A100"
+        },
+        {
+          "id": "node-09-gpu01",
+          "kind": "A10"
+        },
+        {
+          "id": "node-09-gpu02",
+          "kind": "RTX6000"
+        },
+        {
+          "id": "node-09-gpu03",
+          "kind": "H100"
+        },
+        {
+          "id": "node-09-gpu04",
+          "kind": "A10"
+        },
+        {
+          "id": "node-09-gpu05",
+          "kind": "H100"
+        },
+        {
+          "id": "node-09-gpu06",
+          "kind": "A10"
+        },
+        {
+          "id": "node-09-gpu07",
+          "kind": "A10"
+        }
+      ]
+    },
+    {
+      "id": "node-10",
+      "name": "Node 10",
+      "gpus": [
+        {
+          "id": "node-10-gpu00",
+          "kind": "H100"
+        },
+        {
+          "id": "node-10-gpu01",
+          "kind": "A100"
+        },
+        {
+          "id": "node-10-gpu02",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-10-gpu03",
+          "kind": "A10"
+        },
+        {
+          "id": "node-10-gpu04",
+          "kind": "L40S"
+        },
+        {
+          "id": "node-10-gpu05",
+          "kind": "A100"
+        },
+        {
+          "id": "node-10-gpu06",
+          "kind": "A10"
+        },
+        {
+          "id": "node-10-gpu07",
+          "kind": "L40S"
+        }
+      ]
+    }
+  ]
+}
